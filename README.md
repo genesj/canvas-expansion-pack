@@ -5,7 +5,9 @@ On the Modules page, a green Batch Edit button has been added to the top. It has
 - Edit Items
     - Allows you to move, publish/unpublish, increase/decrease indent, and delete multiple items inside of a module.
 - Rename Modules
-    - Allows you to give all modules unique names at once as opposed to changing each module's name inividually. 
+    - Allows you to give all modules unique names at once as opposed to changing each module's name inividually.
+- Rename Items
+    - Similarly to Rename Modules, allows you to batch rename any items inside of your modules. Warns when changing the name of a page that the URL will change as well.
 
 On the Item Banks page, a green Bulk Permissions Editor button has been added to the bottom. It has three features:
 - Share with a person
