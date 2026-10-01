@@ -17,3 +17,6 @@ On the Item Banks page, a green Bulk Permissions Editor button has been added to
 
 On the Grades page, an Add Fudge Points button has been added to the three-dot menu ⋮ that appears when you hover on the header cell of any column. It allows you to add or remove fudge points to any or all students in the course. 
 As this one edits the gradebook, it should be considered extremely experimental, and backups of your gradebook are heavily encouraged.
+
+# Privacy Policy
+There is no way for this tool to capture any user data.
