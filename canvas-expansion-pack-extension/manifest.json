@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Canvas Expansion Pack",
+  "short_name": "Canvas Expansion Pack",
+  "version": "2026.9.30.9",
+  "version_name": "2026-09-30.9",
+  "description": "Bulk tools for Lane CC Canvas: item bank sharing, module batch editing and renaming, and New Quiz fudge points.",
+  "author": "Gene Smith-James",
+  "minimum_chrome_version": "111",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://canvas.lanecc.edu/courses/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ]
+}
