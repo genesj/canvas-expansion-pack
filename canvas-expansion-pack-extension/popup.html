@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Canvas Bulk Tools</title>
+  <style>
+    body {
+      width: 280px;
+      margin: 0;
+      padding: 14px 16px 16px;
+      color: #2D3B45;
+      font: 14px/1.45 "Lato", "Helvetica Neue", Arial, sans-serif;
+    }
+    h1 { margin: 0 0 8px; font-size: 16px; }
+    p { margin: 0 0 10px; }
+    #host { font-weight: 600; overflow-wrap: anywhere; }
+    #state.on { color: #0B874B; }
+    #state.off { color: #6B7780; }
+    #hint, #error { font-size: 13px; color: #6B7780; }
+    #error { color: #D01A19; }
+    button {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0374B5;
+      border: 1px solid #0374B5;
+      border-radius: 4px;
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.off { background: #F5F5F5; border-color: #C7CDD1; color: #2D3B45; }
+    button:disabled { opacity: .5; cursor: default; }
+    button:focus-visible { outline: 2px solid #0374B5; outline-offset: 2px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Canvas Bulk Tools</h1>
+  <p id="host" hidden></p>
+  <p id="state" hidden></p>
+  <button id="toggle" type="button" hidden></button>
+  <p id="hint"></p>
+  <p id="error" role="alert" hidden></p>
+  <script src="popup.js"></script>
+</body>
+</html>

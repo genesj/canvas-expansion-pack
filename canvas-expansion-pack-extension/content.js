@@ -22,27 +22,27 @@
  *     anything the user couldn't already do by hand.
  *   - Captured quiz-service tokens live only inside this closure. They are
  *     never written to storage, the DOM, or the console, and are only sent
- *     to the hosts in CONFIG (or, for grading, an *.instructure.com host
- *     New Quizzes names itself).
+ *     to https New Quizzes hosts on instructure.com (see QUIZ_HOST_RE, or
+ *     for grading, an *.instructure.com host New Quizzes names itself).
  *   - Nothing is ever inserted as HTML; all text from the APIs goes in
  *     through textContent.
  *   - Results carried across a reload (sessionStorage) expire after two
  *     minutes and are deleted as soon as they're read.
  *
  * Packaging (Chrome extension, Manifest V3)
- *   - manifest.json loads this file as a content script with "world": "MAIN"
- *     and "run_at": "document_start", on canvas.lanecc.edu/courses/* only.
+ *   - Works on any Canvas site the user turns it on for. Clicking the
+ *     toolbar icon asks Chrome for permission for that one host;
+ *     background.js then registers this file as a content script with
+ *     world "MAIN" and runAt "document_start" on https://<host>/courses/*.
  *     MAIN world is required: Item Bank Sharing reads the quiz service's
  *     auth headers by wrapping the page's own window.fetch / XMLHttpRequest.
  *   - Because it runs in the page's world, every request is an ordinary
- *     page request, governed by the quiz hosts' own CORS rules exactly as
- *     the userscript was. So the extension asks for no "permissions" and no
- *     "host_permissions" at all.
+ *     page request, governed by the quiz hosts' own CORS rules.
  *   - Nothing here uses chrome.* APIs (they aren't available in MAIN world).
  *     If chrome.storage or messaging is added later, add a second,
  *     isolated-world script and pass values across with window.postMessage.
- *   - Hosts live only in CONFIG and the manifest's "matches". If the college
- *     changes Canvas or quiz hosts, update both.
+ *   - No hosts are hardcoded. The Canvas host is whatever site the script
+ *     was enabled on; the New Quizzes hosts are detected (see quizHosts).
  *   - Debug logging: run  localStorage.setItem('cbt-debug', '1')  in the
  *     console (F12) on a Canvas page and reload; removeItem to turn it off.
  */
@@ -56,8 +56,41 @@
   const CONFIG = {
     // Turn on with localStorage.setItem('cbt-debug', '1') in the console (F12), then reload.
     debug: (() => { try { return localStorage.getItem('cbt-debug') === '1'; } catch { return false; } })(),
-    quizApi: 'https://lanecc.quiz-api-pdx-prod.instructure.com/api',
-    quizLti: 'https://lanecc.quiz-lti-pdx-prod.instructure.com/api',
+  };
+
+  // New Quizzes hosts are learned at runtime instead of being listed here:
+  //   <school>.quiz-api-<region>-<env>.instructure.com   (item banks, grading)
+  //   <school>.quiz-lti-<region>-<env>.instructure.com   (launch, names, participants)
+  // Only https hosts matching this pattern are ever remembered, so tokens can
+  // only be sent to Instructure's quiz servers.
+  const QUIZ_HOST_RE = /^(?:[a-z0-9-]+\.)*quiz-(api|lti)-[a-z0-9-]+\.instructure\.com$/i;
+
+  const quizHosts = {
+    api: null, // e.g. 'https://school.quiz-api-pdx-prod.instructure.com/api'
+    lti: null,
+
+    // Returns 'api' or 'lti' if `url` is a New Quizzes URL (and remembers its
+    // host); otherwise null. Cheap for ordinary URLs: no parsing unless
+    // "quiz-" appears in it.
+    learn(url) {
+      url = String(url || '');
+      if (!url.includes('quiz-')) return null;
+      let u;
+      try { u = new URL(url, location.href); } catch { return null; }
+      const kind = u.protocol === 'https:' ? u.hostname.match(QUIZ_HOST_RE)?.[1].toLowerCase() : null;
+      if (!kind) return null;
+      this[kind] = `${u.origin}/api`;
+      return kind;
+    },
+
+    // The base URL for one service. If only the other service has been seen,
+    // its host is used with the service name swapped (same school and region).
+    base(kind) {
+      const other = kind === 'api' ? 'lti' : 'api';
+      const known = this[kind] || this[other]?.replace(`quiz-${other}-`, `quiz-${kind}-`);
+      if (!known) throw new Error("couldn't tell which New Quizzes server this school uses");
+      return known;
+    },
   };
 
   // ==================================================================
@@ -876,8 +909,6 @@
     };
 
     // ---- Auth capture (runs at document-start) ----
-    const API_HOST = new URL(CONFIG.quizApi).host;
-    const LTI_HOST = new URL(CONFIG.quizLti).host;
     const auth = {
       api: { Authorization: null, Authtype: null },
       lti: { Authorization: null, Authtype: null },
@@ -886,7 +917,10 @@
     let onCapture = () => {};
     let captureQueued = false;
 
-    const slotFor = url => (url.includes(API_HOST) ? auth.api : url.includes(LTI_HOST) ? auth.lti : null);
+    const slotFor = url => {
+      const kind = quizHosts.learn(url);
+      return kind ? auth[kind] : null;
+    };
 
     // `headers` is an iterable of [name, value] pairs, or a function returning one
     // (so non-quiz requests never pay to build a Headers object).
@@ -935,12 +969,13 @@
     function bankCourseId() {
       if (auth.courseId) return auth.courseId;
       const hit = performance.getEntriesByType('resource').map(e => e.name)
-        .find(n => n.includes(API_HOST) && n.includes('course_id='));
+        .find(n => n.includes('course_id=') && quizHosts.learn(n) === 'api');
       return hit ? new URL(hit).searchParams.get('course_id') : null;
     }
 
-    function quizFetch(service, path, { method = 'GET', body } = {}) {
-      const [base, slot] = service === 'lti' ? [CONFIG.quizLti, auth.lti] : [CONFIG.quizApi, auth.api];
+    async function quizFetch(service, path, { method = 'GET', body } = {}) {
+      const base = quizHosts.base(service);
+      const slot = auth[service];
       const headers = {
         Authtype: slot.Authtype || auth.api.Authtype || 'Signature',
         Accept: 'application/json',
@@ -2404,8 +2439,8 @@
     // Grading tokens are only ever sent to an https *.instructure.com host,
     // even if the service names some other host.
     function quizApiBase(host) {
-      const raw = host || CONFIG.quizApi;
-      const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      if (!host) return quizHosts.base('api');
+      const url = new URL(/^https?:\/\//i.test(host) ? host : `https://${host}`);
       if (url.protocol !== 'https:' || !/\.instructure\.com$/i.test(url.hostname)) {
         throw new Error(`New Quizzes pointed to an unexpected server (${url.hostname})`);
       }
@@ -2479,7 +2514,7 @@
         const launchInfo = await onStep('Reading the quiz’s launch details', () => this.launchDetails(assignmentId));
         const pass = await onStep('Getting a pass from Canvas', () => this.canvasPass());
         const j = await onStep('Opening New Quizzes', async () => {
-          const res = await this.json(`${CONFIG.quizLti}/native/launch`,
+          const res = await this.json(`${quizHosts.base('lti')}/native/launch`,
             { Authorization: `Bearer ${pass}`, 'x-domain': launchInfo.params.tool_consumer_instance_guid },
             { method: 'POST', body: { params: launchInfo.params, signature: launchInfo.signature } },
             'Opening New Quizzes');
@@ -2501,7 +2536,7 @@
       },
 
       lti(conn, path, what) {
-        return this.json(`${CONFIG.quizLti}${path}`, conn.headers, undefined, what);
+        return this.json(`${quizHosts.base('lti')}${path}`, conn.headers, undefined, what);
       },
 
       async participants(conn) {
@@ -2707,6 +2742,8 @@
       ui.dialog.show(...heading(quiz), el('progress'), status, el('div', { className: 'cbt-actions' }, cancel));
       cancel.focus();
       try {
+        // A New Quiz's tool URL is on this school's quiz-lti host.
+        quizHosts.learn(quiz.external_tool_tag_attributes?.url);
         const loaded = await loadStudents(quiz.id, text => { if (mine === visit) status.textContent = text; });
         if (mine === visit) showSetup(quiz, loaded);
       } catch (e) {
