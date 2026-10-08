@@ -1,5 +1,5 @@
 /*
- * Canvas Bulk Tools: background service worker
+ * Canvas Expansion Pack: background service worker
  *
  * Keeps one dynamically registered content script in step with the sites the
  * user has turned the tools on for. The list of granted host permissions is
@@ -8,12 +8,12 @@
  */
 
 const SCRIPT_ID = 'canvas-bulk-tools';
-const SCRIPT_FILE = 'content.js'; // the main Canvas Bulk Tools script
+const SCRIPT_FILE = 'content.js'; // the main Canvas Expansion Pack script
 
 // One sync at a time, so two events can't both try to register the script.
 let queue = Promise.resolve();
 const sync = () => (queue = queue.then(doSync, doSync));
-const syncQuietly = () => sync().catch(e => console.error('[Canvas Bulk Tools] sync failed:', e));
+const syncQuietly = () => sync().catch(e => console.error('[Canvas Expansion Pack] sync failed:', e));
 
 async function doSync() {
   const { origins = [] } = await chrome.permissions.getAll();

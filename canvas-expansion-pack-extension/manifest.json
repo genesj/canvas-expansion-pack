@@ -4,14 +4,14 @@
   "short_name": "Canvas Expansion Pack",
   "version": "2026.9.30.9",
   "version_name": "2026-09-30.9",
-  "description": "Bulk tools for Lane CC Canvas: item bank sharing, module batch editing and renaming, and New Quiz fudge points.",
+  "description": "Bulk tools for Canvas: item bank sharing, module batch editing and renaming, and New Quiz fudge points.",
   "author": "Gene Smith-James",
   "minimum_chrome_version": "102",
   "permissions": ["scripting", "activeTab"],
   "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "background.js" },
   "action": {
-    "default_title": "Canvas Bulk Tools",
+    "default_title": "Canvas Expansion Pack",
     "default_popup": "popup.html"
   },
   "icons": {

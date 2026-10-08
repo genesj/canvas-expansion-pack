@@ -102,7 +102,7 @@
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const plural = n => (n === 1 ? '' : 's');
-  const debug = (...args) => { if (CONFIG.debug) console.debug('[Canvas Bulk Tools]', ...args); };
+  const debug = (...args) => { if (CONFIG.debug) console.debug('[Canvas Expansion Pack]', ...args); };
   const courseId = () => location.pathname.match(/\/courses\/(\d+)/)?.[1];
   const chunk = (list, size) =>
     Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
@@ -1010,8 +1010,12 @@
         quizFetch('api', `/banks/${bankId}/shared_banks/${shareId}`,
           { method: 'PATCH', body: { shared_bank: { permission } } }),
 
-      // NOTE: `entityType` (camelCase) is sent as-is, alongside snake_case keys.
-      // Kept unchanged because it works in production; see the audit notes.
+      // NOTE: `entityType` ('user' or 'course') is what tells the service whether
+      // entity_id is a person or a course. It's camelCase while the other keys
+      // (and the service's own responses, as `entity_type`) are snake_case,
+      // most likely because it mirrors what New Quizzes' Share dialog sends.
+      // It works in production, so don't rename it without checking that
+      // request in DevTools first.
       create: (bankId, entityId, entityType, permission) =>
         quizFetch('api', `/banks/${bankId}/shared_banks`, {
           method: 'POST',
@@ -1262,15 +1266,20 @@
       groups = [];
       ui.shares.replaceChildren('Load banks, then scan to see who has access.');
       try {
+        const seen = new Set();
         for (let page = 1; page <= 50; page++) {
           const r = await quizFetch('api', `/banks?page=${page}&course_id=${encodeURIComponent(bankCourse)}`);
           if (!r.ok) throw new Error(`bank list returned ${r.status}${r.status === 401 ? ' (token expired, reload the page)' : ''}`);
           const data = await r.json();
           const list = Array.isArray(data) ? data : (data.banks || data.data || []);
-          banks.push(...list);
+          // Stop when a page brings nothing new, so a server that ignores `page`
+          // (or sends no paging headers) can't fill the list with repeats.
+          const fresh = list.filter(b => !seen.has(String(b.id)));
+          fresh.forEach(b => seen.add(String(b.id)));
+          banks.push(...fresh);
           const total = Number(r.headers.get('total'));
           const perPage = Number(r.headers.get('per-page'));
-          if (!list.length || (total && banks.length >= total) || (perPage && list.length < perPage)) break;
+          if (!fresh.length || (total && banks.length >= total) || (perPage && list.length < perPage)) break;
         }
         ui.banks.replaceChildren(...(banks.length
           ? banks.map((b, i) => el('label', {}, el('input', { type: 'checkbox', checked: true, value: i }), b.title || `Bank ${b.id}`))
@@ -1347,7 +1356,9 @@
                    `Banks already shared with ${u.name} will be switched to ${label}.`)) return;
       const user = { uuid: u.uuid, full_name: u.name, email: u.email, avatar_image_url: u.avatar_url };
       const reg = await quizFetch('lti', '/users', { method: 'POST', body: user });
-      log(`Registered ${u.name} with item banks (${reg.status}).`);
+      log(reg.ok
+        ? `Registered ${u.name} with item banks.`
+        : `⚠️ Couldn't register ${u.name} with item banks (${reg.status}). Trying to share anyway.`);
       await applyShares(selected, 'user', [user.uuid], user.uuid, permission);
     }
 
@@ -1394,7 +1405,8 @@
               ? (bankCourse || s.entity_id) : s.entity_id;
             const key = `${s.entity_type}:${id}`;
             if (!byEntity.has(key)) byEntity.set(key, { type: s.entity_type, id, shares: [] });
-            byEntity.get(key).shares.push({ ...s, bankTitle: bankName(b) });
+            // Keep the bank id from the scan rather than relying on the share's own bank_id.
+            byEntity.get(key).shares.push({ ...s, bankId: String(b.id), bankTitle: bankName(b) });
           }
         });
         groups = [...byEntity.values()];
@@ -1447,7 +1459,7 @@
     async function removeShares() {
       const keep = new Set(checkedBanks().map(b => String(b.id)));
       const chosen = checkedGroups().filter(g => !g.isSelf);
-      const jobs = chosen.flatMap(g => g.shares.filter(s => keep.has(String(s.bank_id))).map(s => ({ g, s })));
+      const jobs = chosen.flatMap(g => g.shares.filter(s => keep.has(s.bankId)).map(s => ({ g, s })));
       if (!jobs.length) return log('Nothing to remove: none of the chosen shares are on checked banks.');
 
       const perGroup = new Map();
@@ -1459,7 +1471,7 @@
       let ok = 0, failed = 0;
       try {
         await paced(jobs, PAUSE_WRITE_MS, async ({ g, s }) => {
-          const r = await shareApi.update(s.bank_id, s.id, REMOVED);
+          const r = await shareApi.update(s.bankId, s.id, REMOVED);
           if (r.ok) ok++;
           else failed++;
           log(`${r.ok ? '🗑️' : '❌'} ${g.name} removed from ${s.bankTitle}${r.ok ? '' : ` (${r.status})`}`);
@@ -2974,7 +2986,7 @@
     for (const f of active) {
       Promise.resolve()
         .then(f.init)
-        .catch(e => console.error(`[Canvas Bulk Tools] ${f.name} failed to start:`, e));
+        .catch(e => console.error(`[Canvas Expansion Pack] ${f.name} failed to start:`, e));
     }
   });
 })();
