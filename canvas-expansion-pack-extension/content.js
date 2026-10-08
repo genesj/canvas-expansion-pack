@@ -22,8 +22,7 @@
  *     anything the user couldn't already do by hand.
  *   - Captured quiz-service tokens live only inside this closure. They are
  *     never written to storage, the DOM, or the console, and are only sent
- *     to https New Quizzes hosts on instructure.com (see QUIZ_HOST_RE, or
- *     for grading, an *.instructure.com host New Quizzes names itself).
+ *     to https New Quizzes hosts on instructure.com (see QUIZ_HOST_RE).
  *   - Nothing is ever inserted as HTML; all text from the APIs goes in
  *     through textContent.
  *   - Results carried across a reload (sessionStorage) expire after two
@@ -1001,9 +1000,11 @@
         return Array.isArray(data) ? data : (data.shared_banks || data.data || []);
       },
 
+      // Ids are compared as strings: the service may send numbers where we hold strings.
       async find(bankId, entityType, entityIds) {
+        const ids = entityIds.map(String);
         return (await this.list(bankId))
-          .find(s => s.entity_type === entityType && entityIds.includes(s.entity_id)) || null;
+          .find(s => s.entity_type === entityType && ids.includes(String(s.entity_id))) || null;
       },
 
       update: (bankId, shareId, permission) =>
@@ -1264,6 +1265,8 @@
       setBusy(true);
       banks = [];
       groups = [];
+      // Clear the old checkboxes first, so a failed load can't leave them pointing at the wrong banks.
+      ui.banks.replaceChildren('Loading banks…');
       ui.shares.replaceChildren('Load banks, then scan to see who has access.');
       try {
         const seen = new Set();
@@ -1287,6 +1290,8 @@
         ui.toggleAll.textContent = 'Select none';
         log(`Loaded ${banks.length} bank(s).`);
       } catch (e) {
+        banks = [];
+        ui.banks.replaceChildren('Banks couldn’t be loaded. Try Load banks again.');
         log('Could not load banks: ' + e.message);
       } finally {
         setBusy(false);
@@ -1311,12 +1316,14 @@
       if (!selected.length) return;
       const permission = ui.perm.value;
       setBusy(true);
+      job.start();
       try {
         if (mode === 'course') await shareWithCourse(selected, permission);
         else await shareWithPerson(selected, permission);
       } catch (e) {
         log('Sharing stopped: ' + e.message);
       } finally {
+        job.end();
         setBusy(false);
       }
     }
@@ -1382,7 +1389,8 @@
       try {
         const bankCourse = bankCourseId();
         const [self, thisCourse] = await Promise.all([whoAmI(), courseInfo().catch(() => ({}))]);
-        const isThisCourse = id => id === bankCourse || (!!thisCourse.uuid && id === thisCourse.uuid);
+        const sameId = (a, b) => a != null && b != null && String(a) === String(b);
+        const isThisCourse = id => sameId(id, bankCourse) || sameId(id, thisCourse.uuid);
 
         // Reads run a few at a time; results keep bank order.
         let done = 0;
@@ -1401,8 +1409,8 @@
         selected.forEach((b, i) => {
           for (const s of lists[i]) {
             if (s.permission === REMOVED) continue;
-            const id = s.entity_type === 'course' && thisCourse.uuid && s.entity_id === thisCourse.uuid
-              ? (bankCourse || s.entity_id) : s.entity_id;
+            const id = String(s.entity_type === 'course' && sameId(s.entity_id, thisCourse.uuid)
+              ? (bankCourse || s.entity_id) : s.entity_id);
             const key = `${s.entity_type}:${id}`;
             if (!byEntity.has(key)) byEntity.set(key, { type: s.entity_type, id, shares: [] });
             // Keep the bank id from the scan rather than relying on the share's own bank_id.
@@ -1430,7 +1438,7 @@
           g.name = name || `Unknown (${String(g.id).slice(0, 8)}…)`;
           const email = (info?.email || '').toLowerCase();
           g.isSelf = g.type === 'user' &&
-            ((!!self.uuid && g.id === self.uuid) || (!!self.email && email === self.email));
+            (sameId(g.id, self.uuid) || (!!self.email && email === self.email));
         }
         groups.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'course' ? -1 : 1));
 
@@ -1468,6 +1476,7 @@
       if (!confirm(`Remove access?\n\n${summary}\n\nThis can be undone by sharing again.`)) return;
 
       setBusy(true);
+      job.start();
       let ok = 0, failed = 0;
       try {
         await paced(jobs, PAUSE_WRITE_MS, async ({ g, s }) => {
@@ -1480,6 +1489,7 @@
       } catch (e) {
         log('Removal stopped: ' + e.message);
       } finally {
+        job.end();
         setBusy(false);
       }
       // Rescan instead of trusting the responses: revoking access is worth verifying.
@@ -2394,6 +2404,10 @@
     };
 
     const round = n => Math.round(n * 1e4) / 1e4;
+    const httpError = (message, status) => Object.assign(new Error(message), { status });
+    // The New Quizzes logins are fetched when the dialog opens and expire after a while.
+    const isExpired = e => e.status === 401 || e.status === 403;
+    const EXPIRED_TEXT = 'Fudge Points session expired. Close this window and choose Add Fudge Points again from the column menu.';
     const fmt = n => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
     // Extracts the JSON object that follows `marker` in an HTML page.
@@ -2448,12 +2462,12 @@
       return `it opened "${address}" with entry details ${JSON.stringify(launchInfo.entry_path ?? null)}`;
     }
 
-    // Grading tokens are only ever sent to an https *.instructure.com host,
+    // Grading tokens are only ever sent to an https New Quizzes host (QUIZ_HOST_RE),
     // even if the service names some other host.
     function quizApiBase(host) {
       if (!host) return quizHosts.base('api');
       const url = new URL(/^https?:\/\//i.test(host) ? host : `https://${host}`);
-      if (url.protocol !== 'https:' || !/\.instructure\.com$/i.test(url.hostname)) {
+      if (url.protocol !== 'https:' || !QUIZ_HOST_RE.test(url.hostname)) {
         throw new Error(`New Quizzes pointed to an unexpected server (${url.hostname})`);
       }
       return `${url.origin}/api`;
@@ -2480,7 +2494,7 @@
 
       async json(url, headers, opts, what) {
         const r = await this.request(url, headers, opts);
-        if (!r.ok) throw new Error(`${what} failed (${r.status})`);
+        if (!r.ok) throw httpError(`${what} failed (${r.status})`, r.status);
         return r.json();
       },
 
@@ -2592,7 +2606,7 @@
 
         const r = await this.request(`${att.base}/quiz_sessions/${att.sessionId}/results`, att.headers,
           { method: 'POST', body: { results: items.map(toSaveFormat), fudge_points: target } });
-        if (!r.ok) throw new Error(`New Quizzes refused the change (${r.status})`);
+        if (!r.ok) throw httpError(`New Quizzes refused the change (${r.status})`, r.status);
 
         const after = await this.result(att);
         if (!after || Math.abs(Number(after.fudge_points) - target) > 1e-6) {
@@ -2609,9 +2623,9 @@
     };
 
     const nameOf = p => p.user?.full_name || `Student ${p.canvas_user_id || p.id}`;
-    const latestAttempt = p => (p.participant_sessions || [])
+    const submittedAttempts = p => (p.participant_sessions || [])
       .filter(s => s.submitted_at)
-      .sort((a, b) => Date.parse(b.submitted_at) - Date.parse(a.submitted_at))[0];
+      .sort((a, b) => Date.parse(b.submitted_at) - Date.parse(a.submitted_at));
 
     async function loadStudents(assignmentId, onProgress) {
       const step = async (label, fn) => {
@@ -2624,8 +2638,9 @@
       const skipped = [];
       const candidates = [];
       for (const p of people) {
-        const ps = latestAttempt(p);
-        if (ps) candidates.push({ name: nameOf(p), userId: String(p.canvas_user_id), ps });
+        const attempts = submittedAttempts(p);
+        const ps = attempts[0]; // the latest
+        if (ps) candidates.push({ name: nameOf(p), userId: String(p.canvas_user_id), ps, attempts: attempts.length });
         else skipped.push({ name: nameOf(p), why: "hasn't submitted" });
       }
 
@@ -2741,6 +2756,15 @@
         el('tbody', {}, ...rows)));
     const th = (text, className = '') => el('th', { className, textContent: text });
     const td = (text, className = '') => el('td', { className, textContent: text });
+    // Points go on the latest attempt, which may not be the one the quiz's scoring policy counts.
+    const nameCell = s => el('td', {}, s.name, s.attempts > 1
+      ? el('span', { className: 'cbt-sub cbt-warn', textContent: `${s.attempts} attempts: only the latest is changed` })
+      : '');
+    const multiAttemptNote = list => (list.some(s => s.attempts > 1)
+      ? el('p', { className: 'cbt-hint cbt-warn', textContent:
+          'Some students have more than one attempt. Fudge points go on the latest attempt and the scores shown are ' +
+          'from that attempt. If this quiz keeps the highest or average score, their Gradebook score may not change.' })
+      : '');
 
     const heading = quiz => [
       el('h2', { textContent: 'Add fudge points' }),
@@ -2788,7 +2812,7 @@
         const after = el('td', { className: 'cbt-num' });
         const tr = el('tr', {},
           el('td', { className: 'cbt-check-cell' }, box),
-          td(s.name),
+          nameCell(s),
           td(fmt(s.result.fudge_points), 'cbt-num'),
           td(`${fmt(s.result.score)} / ${fmt(s.result.points_possible)}`, 'cbt-num'),
           after);
@@ -2822,6 +2846,7 @@
         el('p', { className: 'cbt-hint', textContent:
           'Adds to any fudge points a student already has. Use a negative number to take points away. ' +
           'Applies to each student’s latest attempt.' }),
+        multiAttemptNote(students),
         el('strong', { textContent: 'This feature is experimental; back up your grades before using.' }),
         students.length
           ? studentTable([el('th', { className: 'cbt-check-cell' }, all), th('Student'),
@@ -2844,9 +2869,10 @@
       const go = btn(`${verb} ${pts} for ${n} student${plural(n)}`, () => run(quiz, chosen, delta), 'cbt-primary');
       ui.dialog.show(...heading(quiz),
         el('h3', { textContent: `${verb} ${pts} ${delta > 0 ? 'to' : 'from'} ${n} student${plural(n)}` }),
+        multiAttemptNote(chosen),
         studentTable([th('Student'), th('Fudge points', 'cbt-num'), th('Score', 'cbt-num')],
           chosen.map(s => el('tr', {},
-            td(s.name),
+            nameCell(s),
             el('td', { className: 'cbt-num' }, `${fmt(s.result.fudge_points)} → `,
               el('span', { className: 'cbt-fudge-change', textContent: fmt(round(Number(s.result.fudge_points || 0) + delta)) })),
             el('td', { className: 'cbt-num' }, `${fmt(s.result.score)} → `,
@@ -2874,6 +2900,7 @@
       stopRequested = false;
       const done = [], failed = [];
       let halted = null;
+      let expired = false;
 
       const progress = el('progress', { max: chosen.length, value: 0 });
       const status = el('p', { className: 'cbt-hint', role: 'status' });
@@ -2892,6 +2919,12 @@
             await nq.addFudge(s.att, delta);
             done.push(s);
           } catch (e) {
+            // An expired login fails for everyone left, so stop instead of trying each one.
+            if (isExpired(e)) {
+              expired = true;
+              failed.push({ name: s.name, why: `session expired (${e.message})` });
+              return false;
+            }
             failed.push({ name: s.name, why: e.message });
             if (e.fatal) { halted = s.name; return false; }
           } finally {
@@ -2902,7 +2935,7 @@
         job.end();
       }
 
-      const summary = { quiz: { id: quiz.id, name: quiz.name }, total: chosen.length, done: done.length, failed, halted };
+      const summary = { quiz: { id: quiz.id, name: quiz.name }, total: chosen.length, done: done.length, failed, halted, expired };
       if (!done.length || !store.write(summary)) return showResults(summary);
 
       // Wait (briefly) for the Gradebook to pick up the new scores, so the reload shows them.
@@ -2927,20 +2960,21 @@
 
     const store = sessionStore('cbt-fudge');
 
-    const summaryText = ({ total, done, failed, halted }) => {
+    const summaryText = ({ total, done, failed, halted, expired }) => {
       const notRun = total - done - failed.length;
       const parts = [`${done} updated`];
       if (failed.length) parts.push(`${failed.length} failed`);
       if (notRun) parts.push(`${notRun} not attempted`);
-      return `${halted ? 'Stopped' : 'Done'}: ${parts.join(', ')}.`;
+      return `${halted || expired ? 'Stopped' : 'Done'}: ${parts.join(', ')}.`;
     };
 
     function showResults(summary) {
-      const { quiz, failed, halted } = summary;
+      const { quiz, failed, halted, expired } = summary;
       const close = btn('Close', () => ui.dialog.close(), 'cbt-primary');
       ui.dialog.show(...heading(quiz),
         el('h3', { textContent: summaryText(summary) }),
         halted ? el('p', { className: 'cbt-fudge-error', textContent: `Stopped after ${halted} so nothing else is changed until you’ve looked.` }) : '',
+        expired ? el('p', { className: 'cbt-fudge-error', textContent: EXPIRED_TEXT }) : '',
         failed.length ? el('ul', { className: 'cbt-list' }, ...failed.map(f => el('li', {},
           el('span', { textContent: f.name }), el('span', { className: 'cbt-sub cbt-fudge-error', textContent: f.why })))) : '',
         el('div', { className: 'cbt-actions' }, close));
@@ -2948,7 +2982,7 @@
     }
 
     function showAfterReload(summary) {
-      if (summary.failed.length || summary.halted) return showResults(summary);
+      if (summary.failed.length || summary.halted || summary.expired) return showResults(summary);
       toast(`Fudge points for ${summary.quiz.name}: ${summaryText(summary)}`);
     }
 
