@@ -8,7 +8,19 @@
  */
 
 const SCRIPT_ID = 'canvas-bulk-tools';
-const SCRIPT_FILE = 'content.js'; // the main Canvas Expansion Pack script
+// Run in this order: core.js first, then ui.js, the features, and main.js
+// last (it starts the features). A new feature file goes before main.js.
+const SCRIPT_FILES = [
+  'content/core.js',
+  'content/ui.js',
+  'content/bulk-edit.js',
+  'content/features/item-bank-sharing.js',
+  'content/features/modules-batch-edit.js',
+  'content/features/assignments-batch-edit.js',
+  'content/features/fudge-points.js',
+  'content/features/module-breadcrumbs.js',
+  'content/main.js',
+];
 
 // One sync at a time, so two events can't both try to register the script.
 let queue = Promise.resolve();
@@ -30,7 +42,7 @@ async function doSync() {
 
   const script = {
     id: SCRIPT_ID,
-    js: [SCRIPT_FILE],
+    js: SCRIPT_FILES,
     matches,
     runAt: 'document_start', // before the page's own scripts (needed for Item Bank Sharing)
     world: 'MAIN',           // the page's world, so it can wrap window.fetch
