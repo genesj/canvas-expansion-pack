@@ -56,20 +56,24 @@
         try { return new URL(a.getAttribute('href'), location.origin).pathname.replace(/\/+$/, ''); } catch { return null; }
       };
   
-      // A breadcrumb link to `path`: one in a short list that also links to the
+      // Breadcrumb links to `path`: ones in a short list that also links to the
       // course. The course menu on the left has both links too, but many more,
       // which rules it out. Works for the classic #breadcrumbs and the newer
-      // React header alike, since it doesn't rely on their markup.
-      function crumbLink(path) {
+      // React header alike, since it doesn't rely on their markup. Only lists on
+      // screen count: with the new header, Canvas keeps the classic #breadcrumbs
+      // hidden and copies its crumbs into the new one, so a module crumb added
+      // there would show up a second time.
+      function crumbLinks(path) {
         const course = `/courses/${courseId()}`;
+        const out = [];
         for (const a of document.querySelectorAll(`a[href*="${path}"]`)) {
           if (a.closest(`[${MARK}]`) || pathOf(a) !== path) continue;
           const list = a.closest('ol, ul, nav');
-          if (!list) continue;
+          if (!list || out.some(f => f.list === list) || !list.getClientRects().length) continue;
           const links = [...list.querySelectorAll('a[href]')].filter(l => !l.closest(`[${MARK}]`));
-          if (links.length <= 5 && links.some(l => pathOf(l) === course)) return { a, list };
+          if (links.length <= 5 && links.some(l => pathOf(l) === course)) out.push({ a, list });
         }
-        return null;
+        return out;
       }
   
       // The list entry holding `a` (the list's own child, so separators inside it come along).
@@ -85,6 +89,7 @@
         copy.setAttribute(MARK, String(mod.id));
         copy.style.removeProperty('display');
         copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+        copy.querySelectorAll('[aria-describedby]').forEach(n => n.removeAttribute('aria-describedby'));
         const link = copy.querySelector('a[href]');
         link.href = `/courses/${courseId()}/modules#module_${mod.id}`;
         link.title = mod.name;
@@ -105,20 +110,21 @@
       // Hides Canvas's category crumb and puts a module crumb after it. Canvas's
       // own nodes are only hidden, never changed, so React can keep managing
       // them. If there's no category crumb, the module goes after the course.
-      // Returns true once the module crumb is on the page.
+      // Returns true once a module crumb is on the page.
       function apply(mod) {
         const cid = courseId();
-        const category = crumbLink(`/courses/${cid}/${pageAsset().section}`);
-        const found = category || crumbLink(`/courses/${cid}`);
-        if (!found) return !!document.querySelector(`[${MARK}]`);
-        const entry = entryOf(found.a, found.list);
-        const next = entry.nextElementSibling;
-        if (!next?.hasAttribute(MARK)) {
-          found.list.querySelectorAll(`[${MARK}]`).forEach(n => n.remove());
-          entry.after(moduleEntry(entry, mod));
+        const categories = crumbLinks(`/courses/${cid}/${pageAsset().section}`);
+        const courses = crumbLinks(`/courses/${cid}`).filter(c => !categories.some(f => f.list === c.list));
+        for (const { a, list } of [...categories, ...courses]) {
+          const entry = entryOf(a, list);
+          // Exactly one module crumb per breadcrumb, right after `entry`. Any
+          // other copy (left behind when Canvas redraws around it) is removed.
+          const keep = entry.nextElementSibling?.hasAttribute(MARK) ? entry.nextElementSibling : null;
+          list.querySelectorAll(`[${MARK}]`).forEach(n => { if (n !== keep) n.remove(); });
+          if (!keep) entry.after(moduleEntry(entry, mod));
+          if (categories.some(f => f.a === a) && entry.style.display !== 'none') entry.style.display = 'none';
         }
-        if (category && entry.style.display !== 'none') entry.style.display = 'none';
-        return true;
+        return !!document.querySelector(`[${MARK}]`);
       }
   
       async function init() {
