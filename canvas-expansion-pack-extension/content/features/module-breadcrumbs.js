@@ -7,6 +7,13 @@
 // opened from Modules, the module_item_id in the URL picks the exact module;
 // otherwise the first module holding the item is used. Items in no module
 // keep Canvas's own breadcrumb. Read-only: nothing is ever written.
+//
+// Canvas builds its breadcrumb in two steps: the page arrives with a plain
+// #breadcrumbs, then Canvas's newer header redraws it from those crumbs. The
+// module lookup can finish before or after that redraw, so instead of making
+// a one-off edit, every check brings the breadcrumb to the same end state:
+// the crumbs between the course and the item are hidden, and exactly one
+// crumb links to the module, whether ours or one Canvas copied from ours.
 
 (() => {
     'use strict';
@@ -55,46 +62,34 @@
       const pathOf = a => {
         try { return new URL(a.getAttribute('href'), location.origin).pathname.replace(/\/+$/, ''); } catch { return null; }
       };
-  
-      // Breadcrumb links to `path`: ones in a short list that also links to the
-      // course. The course menu on the left has both links too, but many more,
-      // which rules it out. Works for the classic #breadcrumbs and the newer
-      // React header alike, since it doesn't rely on their markup. Only lists on
-      // screen count: with the new header, Canvas keeps the classic #breadcrumbs
-      // hidden and copies its crumbs into the new one, so a module crumb added
-      // there would show up a second time.
-      function crumbLinks(path) {
-        const course = `/courses/${courseId()}`;
-        const out = [];
-        for (const a of document.querySelectorAll(`a[href*="${path}"]`)) {
-          if (a.closest(`[${MARK}]`) || pathOf(a) !== path) continue;
-          const list = a.closest('ol, ul, nav');
-          if (!list || out.some(f => f.list === list) || !list.getClientRects().length) continue;
-          const links = [...list.querySelectorAll('a[href]')].filter(l => !l.closest(`[${MARK}]`));
-          if (links.length <= 5 && links.some(l => pathOf(l) === course)) out.push({ a, list });
-        }
-        return out;
-      }
-  
-      // The list entry holding `a` (the list's own child, so separators inside it come along).
-      const entryOf = (a, list) => {
-        let n = a;
-        while (n.parentElement && n.parentElement !== list) n = n.parentElement;
-        return n;
+      const pathAndHash = a => {
+        try { const u = new URL(a.getAttribute('href'), location.origin); return u.pathname + u.hash; } catch { return null; }
       };
   
-      // A copy of `entry` that shows the module and links to it.
-      function moduleEntry(entry, mod) {
-        const copy = entry.cloneNode(true);
+      // Breadcrumb lists: any <ol>/<ul> in a breadcrumb container that links to the course.
+      function crumbLists() {
+        const course = `/courses/${courseId()}`;
+        const roots = document.querySelectorAll('#breadcrumbs, [aria-label="breadcrumbs" i]');
+        const lists = new Set();
+        for (const root of roots) {
+          for (const list of root.querySelectorAll('ol, ul')) {
+            if ([...list.querySelectorAll(':scope > li a[href]')].some(a => pathOf(a) === course)) lists.add(list);
+          }
+        }
+        return [...lists];
+      }
+  
+      // A copy of `li` (the course crumb) that shows the module and links to it.
+      function moduleCrumb(li, mod, href) {
+        const copy = li.cloneNode(true);
         copy.setAttribute(MARK, String(mod.id));
         copy.style.removeProperty('display');
         copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
         copy.querySelectorAll('[aria-describedby]').forEach(n => n.removeAttribute('aria-describedby'));
         const link = copy.querySelector('a[href]');
-        link.href = `/courses/${courseId()}/modules#module_${mod.id}`;
+        link.href = href;
         link.title = mod.name;
-        link.removeAttribute('aria-current');
-        // Put the name in the first piece of text and empty the rest (truncation spans etc.).
+        // Put the name in the first piece of text and empty the rest.
         const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT);
         const texts = [];
         while (walker.nextNode()) if (walker.currentNode.nodeValue.trim()) texts.push(walker.currentNode);
@@ -107,40 +102,62 @@
         return copy;
       }
   
-      // Hides Canvas's category crumb and puts a module crumb after it. Canvas's
-      // own nodes are only hidden, never changed, so React can keep managing
-      // them. If there's no category crumb, the module goes after the course.
-      // Returns true once a module crumb is on the page.
-      function apply(mod) {
-        const cid = courseId();
-        const categories = crumbLinks(`/courses/${cid}/${pageAsset().section}`);
-        const courses = crumbLinks(`/courses/${cid}`).filter(c => !categories.some(f => f.list === c.list));
-        for (const { a, list } of [...categories, ...courses]) {
-          const entry = entryOf(a, list);
-          // Exactly one module crumb per breadcrumb, right after `entry`. Any
-          // other copy (left behind when Canvas redraws around it) is removed.
-          const keep = entry.nextElementSibling?.hasAttribute(MARK) ? entry.nextElementSibling : null;
-          list.querySelectorAll(`[${MARK}]`).forEach(n => { if (n !== keep) n.remove(); });
-          if (!keep) entry.after(moduleEntry(entry, mod));
-          if (categories.some(f => f.a === a) && entry.style.display !== 'none') entry.style.display = 'none';
+      const hide = li => { if (li.style.display !== 'none') li.style.display = 'none'; };
+      const show = li => { if (li.style.display === 'none') li.style.removeProperty('display'); };
+  
+      // Brings one breadcrumb list to: ... > Course > Module > Item.
+      function fix(list, mod) {
+        const course = `/courses/${courseId()}`;
+        const href = `${course}/modules#module_${mod.id}`;
+        const items = [...list.children].filter(n => n.tagName === 'LI');
+        const at = items.findIndex(li => [...li.querySelectorAll('a[href]')].some(a => pathOf(a) === course));
+        if (at < 0) return 'no course crumb';
+        // Everything after the course except the last crumb (the item itself).
+        const middle = items.slice(at + 1, -1);
+        const isModule = li => [...li.querySelectorAll('a[href]')].some(a => pathAndHash(a) === href);
+        // Prefer a module crumb Canvas drew itself; then ours.
+        const keep = middle.find(li => isModule(li) && !li.hasAttribute(MARK)) || middle.find(isModule);
+        for (const li of middle) {
+          if (li === keep) show(li);
+          else if (li.hasAttribute(MARK)) li.remove();
+          else hide(li);
         }
-        return !!document.querySelector(`[${MARK}]`);
+        if (keep) return keep.hasAttribute(MARK) ? 'ok (ours)' : 'ok (Canvas copied it)';
+        items[at].after(moduleCrumb(items[at], mod, href));
+        return 'added module crumb';
+      }
+  
+      function apply(mod) {
+        return crumbLists().map(list => fix(list, mod));
+      }
+  
+      // What each breadcrumb list reads on screen right now, for the log.
+      function snapshot() {
+        return crumbLists().map(list => [...list.children]
+          .filter(li => li.tagName === 'LI' && li.style.display !== 'none')
+          .map(li => li.textContent.trim()).join(' > '));
       }
   
       async function init() {
         const mod = await lookup;
         if (!mod) { debug('module breadcrumbs: this item is in no module (or the lookup failed)'); return; }
-        debug('module breadcrumbs: module', mod.id, mod.name);
-        let shown = apply(mod);
-        // The newer header is drawn by React after load and may redraw later,
-        // so keep watching and put the module crumb back whenever it goes.
+        debug('module breadcrumbs: module is', mod.id, mod.name);
+        debug('module breadcrumbs: before:', snapshot());
+        debug('module breadcrumbs:', apply(mod));
+        // Canvas redraws the breadcrumb after load, so check again after any change.
         let queued = false;
+        let last = '';
         new MutationObserver(() => {
           if (queued) return;
           queued = true;
-          requestAnimationFrame(() => { queued = false; shown = apply(mod) || shown; });
+          requestAnimationFrame(() => {
+            queued = false;
+            const result = apply(mod).join(', ');
+            if (result !== last && /added|Canvas/.test(result)) debug('module breadcrumbs (later):', result);
+            last = result;
+          });
         }).observe(document.body, { childList: true, subtree: true });
-        setTimeout(() => { if (!shown) debug('module breadcrumbs: no breadcrumb found on this page'); }, 10_000);
+        setTimeout(() => debug('module breadcrumbs: 3s later:', snapshot()), 3000);
       }
   
       return {
@@ -148,7 +165,7 @@
         matches: path => PAGE_RE.test(path),
         // Ask early so the answer is usually back by the time the DOM is ready.
         early() {
-          lookup = findModule().catch(e => { debug('module breadcrumbs:', e); return null; });
+          lookup = findModule().catch(e => { debug('module breadcrumbs: lookup failed:', e); return null; });
         },
         init,
       };
