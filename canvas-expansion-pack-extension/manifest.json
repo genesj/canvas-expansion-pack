@@ -2,14 +2,21 @@
   "manifest_version": 3,
   "name": "Canvas Expansion Pack",
   "short_name": "Canvas Expansion Pack",
-  "version": "2026.10.13.3",
-  "version_name": "2026-10-13.3",
+  "version": "2026.10.14",
+  "version_name": "2026-10-14",
   "description": "Bulk tools for Canvas: item bank sharing, module and assignment batch editing, module renaming, New Quiz fudge points, and module breadcrumbs.",
   "author": "Gene Smith-James",
-  "minimum_chrome_version": "102",
+  "minimum_chrome_version": "121",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "canvas-expansion-pack@genesj",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  },
   "permissions": ["scripting", "activeTab"],
   "optional_host_permissions": ["https://*/*"],
-  "background": { "service_worker": "background.js" },
+  "background": { "service_worker": "background.js", "scripts": ["background.js"] },
   "action": {
     "default_title": "Canvas Expansion Pack",
     "default_popup": "popup.html"
