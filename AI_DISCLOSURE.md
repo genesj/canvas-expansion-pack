@@ -6,7 +6,7 @@ providers:
   - Anthropic
 scope: |
   Application code is AI-generated with several iterations of human-led, AI-assisted reviews before finalization.
-  Tested only by humans.
+  Output rigorously verified by humans.
   Documentation is human-written unless otherwise marked.
 last-updated: 2026-10-01
 ---

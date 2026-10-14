@@ -4,8 +4,8 @@
   'use strict';
 
   const {
-    btn, canvas, chunk, courseId, debug, el, job, launch, launchMenu, mapLimit, paced,
-    plural, sessionStore, toast, waitFor, addStyles, register, bulkEditor, moveTree, planList,
+    btn, canvas, chunk, courseId, debug, el, launch, launchMenu, mapLimit,
+    plural, sessionStore, waitFor, addStyles, register, bulkEditor, moveTree, renamer, checkPlacer,
   } = window.__canvasExpansionPack;
 
   addStyles(String.raw`
@@ -22,14 +22,6 @@
       cursor: pointer;
       accent-color: var(--cbt-checkbox);
     }
-    body.cbt-mod-on .cbt-mod-has-outside { position: relative; }
-    .cbt-mod-check.cbt-mod-outside {
-      position: absolute;
-      left: calc(-1 * var(--cbt-outside-gap));
-      top: 50%;
-      transform: translateY(-50%);
-      margin: 0;
-    }
     body.cbt-mod-on li[id^="context_module_item_"] .ig-row {
       cursor: pointer;
       user-select: none; /* Shift-click selects a range, not text */
@@ -42,29 +34,6 @@
       background: var(--cbt-selected-row) !important;
     }
 
-    /* Rename modules */
-    .cbt-rename-list {
-      list-style: none;
-      max-height: 55vh;
-      overflow: auto;
-      margin: 10px 0 0;
-      padding: 0;
-      border: 1px solid var(--cbt-border-light);
-      border-radius: 4px;
-    }
-    .cbt-rename-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 6px 10px;
-      border-top: 1px solid var(--cbt-border-light);
-    }
-    .cbt-rename-row:first-child { border-top: 0; }
-    .cbt-rename-row.cbt-changed { background: var(--cbt-selected-row); }
-    .cbt-rename-row.cbt-invalid input { border-color: var(--cbt-danger); }
-    .cbt-rename-num { flex: none; width: 2em; padding-top: 7px; color: var(--cbt-muted); text-align: right; }
-    .cbt-rename-field { flex: 1; min-width: 0; }
-    .cbt-rename-was { margin-top: 2px; }
   `);
 
   // ==================================================================
@@ -317,7 +286,7 @@
     let loaded = false;
     let lastClicked = null;
     let observer = null;
-    let outside = null;
+    const placer = checkPlacer();
     let session = 0;
     let decorateQueued = false;
 
@@ -356,6 +325,7 @@
       ui.renameTool = ui.tools.at(-1);
       ui.renameTool.hidden = true;
       ui.dialog = editor.dialog;
+      ui.rename = renamer({ dialog: editor.dialog, store, pauseMs: PAUSE_MS });
     }
 
     // mode 'edit' shows the edit tools; 'rename' shows only "Rename selected…".
@@ -402,8 +372,7 @@
       document.body.classList.remove('cbt-mod-on');
       document.querySelectorAll('.cbt-mod-check.cbt-mod-injected').forEach(cb => cb.remove());
       document.querySelectorAll('li.cbt-mod-selected').forEach(li => li.classList.remove('cbt-mod-selected'));
-      document.querySelectorAll('.cbt-mod-has-outside').forEach(n => n.classList.remove('cbt-mod-has-outside'));
-      outside = null;
+      placer.reset();
       selected.clear();
       lastClicked = null;
       editor.setBusy(false);
@@ -436,18 +405,16 @@
         for (const item of m.items) {
           const li = SEL.item(item.id);
           if (!li || li.querySelector('.cbt-mod-check[data-id]')) continue;
-          if (outside === null) outside = roomOutside(li, SEL.module(m.id) || li);
           const id = String(item.id);
           const cb = pageCheckbox(`Select ${item.title}`);
           cb.dataset.id = id;
           cb.addEventListener('click', e => toggleItem(id, cb.checked, e.shiftKey));
-          if (outside) placeOutside(cb, li);
-          else {
+          placer.item(cb, li, SEL.module(m.id), () => {
             const row = li.querySelector(SEL.itemRow) || li;
             const handle = row.querySelector(SEL.dragHandle);
             if (handle) handle.after(cb);
             else row.prepend(cb);
-          }
+          });
           added = true;
         }
       }
@@ -465,46 +432,13 @@
           }
           sync();
         });
-        if (outside) placeOutside(cb, head);
-        else head.prepend(cb);
+        placer.header(cb, head);
         added = true;
       }
 
-      if (added) alignModuleChecks();
+      if (added) placer.align(document.querySelectorAll('.cbt-mod-check[data-id]'),
+        document.querySelectorAll('.cbt-mod-check[data-mod]'));
       sync();
-    }
-
-    function placeOutside(cb, container) {
-      cb.classList.add('cbt-mod-outside');
-      container.classList.add('cbt-mod-has-outside');
-      container.append(cb);
-    }
-
-    // Lines module checkboxes up with item checkboxes. All writes happen after
-    // all reads, so this forces one layout instead of one per module.
-    function alignModuleChecks() {
-      const ref = [...document.querySelectorAll('.cbt-mod-check[data-id]')].find(cb => cb.offsetWidth > 0);
-      if (!ref) return;
-      const boxes = [...document.querySelectorAll('.cbt-mod-check[data-mod]')];
-      if (!outside) boxes.forEach(cb => { cb.style.marginLeft = ''; });
-      const x = ref.getBoundingClientRect().left;
-      const moves = boxes.map(cb => (outside
-        ? ['left', x - cb.parentElement.getBoundingClientRect().left]
-        : ['marginLeft', Math.max(0, parseFloat(getComputedStyle(cb).marginLeft) + x - cb.getBoundingClientRect().left)]));
-      boxes.forEach((cb, i) => { cb.style[moves[i][0]] = `${moves[i][1]}px`; });
-    }
-
-    // True when there's visible room to the left of the module box for the checkboxes.
-    function roomOutside(li, moduleEl) {
-      const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cbt-outside-gap')) || 30;
-      const x = moduleEl.getBoundingClientRect().left - gap;
-      if (x < 4) return false;
-      for (let n = li.parentElement; n && n !== document.documentElement; n = n.parentElement) {
-        if (getComputedStyle(n).overflowX === 'visible') continue;
-        if (n === moduleEl || moduleEl.contains(n)) return false;
-        if (n.getBoundingClientRect().left > x) return false;
-      }
-      return true;
     }
 
     function toggleItem(id, on, extendRange) {
@@ -556,57 +490,6 @@
       module.items.filter(i => selected.has(String(i.id))).map(item => ({ item, group: module, title: item.title })));
 
     // ---- Rename (every module, or the selected items) ----
-    // One text box per entry. entries: [{ name, context?, type?, save(name) → Response }]
-    function renameDialog({ title, noun, hint, empty, entries, note }) {
-      const rows = entries.map((entry, i) => {
-        const input = el('input', { type: 'text', value: entry.name, maxLength: 255, ariaLabel: `Name for ${noun} ${i + 1}` });
-        const was = el('span', { className: 'cbt-sub cbt-rename-was', textContent: `Was: ${entry.name}` });
-        const row = el('li', { className: 'cbt-rename-row' },
-          el('span', { className: 'cbt-rename-num', textContent: i + 1 }),
-          el('div', { className: 'cbt-rename-field' }, input,
-            entry.context ? el('span', { className: 'cbt-sub', textContent: entry.context }) : '', was));
-        input.addEventListener('input', refresh);
-        input.addEventListener('keydown', e => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          rows[i + 1]?.input.focus();
-        });
-        return { entry, was, row, input, old: entry.name.trim(), name: () => input.value.trim() };
-      });
-      const changes = () => rows.filter(r => r.name() && r.name() !== r.old);
-      const status = el('p', { className: 'cbt-hint', role: 'status' });
-      const warning = el('p', { className: 'cbt-hint cbt-warn', role: 'status' });
-      const save = btn('', () => saveNames(noun, changes().map(r => ({ entry: r.entry, name: r.name() }))), 'cbt-primary');
-
-      function refresh() {
-        let blank = 0;
-        for (const r of rows) {
-          const v = r.name();
-          const changed = v !== r.old;
-          r.row.classList.toggle('cbt-changed', changed);
-          r.row.classList.toggle('cbt-invalid', !v);
-          r.was.hidden = !changed;
-          if (!v) blank++;
-        }
-        const changed = changes();
-        const n = changed.length;
-        save.disabled = !n || blank > 0;
-        save.textContent = n ? `Save ${n} change${plural(n)}` : 'Save';
-        status.textContent = blank ? `Names can't be blank (${blank} empty).` : '';
-        warning.textContent = note?.(changed.map(r => r.entry)) || '';
-        warning.hidden = !warning.textContent;
-      }
-      refresh();
-
-      ui.dialog.show(el('h2', { textContent: title }),
-        el('p', { className: 'cbt-hint', textContent: hint }),
-        rows.length ? el('ol', { className: 'cbt-rename-list' }, ...rows.map(r => r.row)) : el('p', { textContent: empty }),
-        warning,
-        status,
-        el('div', { className: 'cbt-actions' }, btn('Cancel', () => ui.dialog.close()), save));
-      rows[0]?.input.focus();
-    }
-
     async function showRenameModules() {
       const title = () => el('h2', { textContent: 'Rename modules' });
       ui.dialog.show(title(), el('progress'), el('p', { className: 'cbt-hint', textContent: 'Loading modules…' }),
@@ -621,7 +504,7 @@
       }
       if (!ui.dialog.open) return;
 
-      renameDialog({
+      ui.rename.show({
         title: 'Rename modules',
         noun: 'module',
         hint: 'Edit any names, then save. Enter moves to the next one.',
@@ -637,7 +520,7 @@
     function showRenameItems() {
       const picked = selectedRows();
       if (!picked.length) return;
-      renameDialog({
+      ui.rename.show({
         title: `Rename ${picked.length} item${plural(picked.length)}`,
         noun: 'item',
         hint: 'Edit any names, then save. Enter moves to the next one. ' +
@@ -654,51 +537,12 @@
       });
     }
 
-    async function saveNames(noun, list) {
-      const progress = el('progress', { max: list.length, value: 0 });
-      const status = el('p', { className: 'cbt-hint', role: 'status' });
-      ui.dialog.show(el('h2', { textContent: `Renaming ${noun}s…` }), progress, status);
-
-      let ok = 0;
-      const failed = [];
-      job.start();
-      try {
-        await paced(list, PAUSE_MS, async ({ entry, name }, i) => {
-          status.textContent = `${i} of ${list.length} done`;
-          const row = { title: name, context: `was “${entry.name}”` };
-          try {
-            const res = await entry.save(name);
-            if (res.ok) ok++;
-            else failed.push({ ...row, text: await canvas.errorText(res) });
-          } catch (e) {
-            failed.push({ ...row, text: e.message });
-          }
-          progress.value = i + 1;
-        });
-      } finally {
-        job.end();
-      }
-
-      const result = { text: `Renamed ${ok} ${noun}${plural(ok)}${failed.length ? `, ${failed.length} failed` : ''}.`, failed };
-      if (ok && store.write({ rename: result })) return location.reload();
-      showRenameResult(result);
-    }
-
-    function showRenameResult({ text, failed }) {
-      if (!failed.length) return toast(text);
-      const close = btn('Close', () => ui.dialog.close(), 'cbt-primary');
-      ui.dialog.show(el('h2', { textContent: text }),
-        el('h3', { textContent: "These couldn't be renamed:" }), planList(failed),
-        el('div', { className: 'cbt-actions' }, close));
-      close.focus();
-    }
-
     async function init() {
       if (!await waitFor(SEL.page) || !document.querySelector(SEL.editorOnly)) return;
       buildUI();
       const saved = store.take();
       if (!saved) return;
-      if (saved.rename) return showRenameResult(saved.rename);
+      if (saved.rename) return ui.rename.showResult(saved.rename);
       await enterBulk(saved);
       if (saved.notice) editor.showNotice(saved.notice);
     }
