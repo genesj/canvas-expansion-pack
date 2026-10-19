@@ -1,6 +1,9 @@
 # canvas-expansion-pack
 Canvas Expansion Pack adds several bulk editing features to expedite work inside of the LMS.
 
+# Installation
+Install via the [Chrome](https://chromewebstore.google.com/detail/canvas-expansion-pack/fkmfjgaabjocfcodecdcikdbkekoaeho) or [Firefox](https://addons.mozilla.org/en-US/firefox/addon/canvas-expansion-pack/) Web Stores to automatically receive updates. Manual installation is not recommended or supported.
+
 # Turning it on
 After installing the extension, navigate to your Canvas instance and click the extension icon. Click the "Turn on and reload" button if it isn't already active. This should only have to be done once.
 
