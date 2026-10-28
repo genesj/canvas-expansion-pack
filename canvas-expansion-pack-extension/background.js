@@ -19,6 +19,7 @@ const SCRIPT_FILES = [
   'content/features/assignments-batch-edit.js',
   'content/features/fudge-points.js',
   'content/features/module-breadcrumbs.js',
+  'content/features/advanced-reports.js',
   'content/main.js',
 ];
 

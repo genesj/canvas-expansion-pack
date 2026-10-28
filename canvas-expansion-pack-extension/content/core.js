@@ -8,9 +8,10 @@
  *   content/bulk-edit.js                    Batch Edit bar, preview, apply loop and move picker (Modules + Assignments)
  *   content/features/item-bank-sharing.js   Item Banks page
  *   content/features/modules-batch-edit.js  Modules page / course home; edit items, rename items, rename modules
- *   content/features/assignments-batch-edit.js  Assignments page; move, publish, unpublish, delete
+ *   content/features/advanced-reports.js  Assignments page; move, publish, unpublish, delete
  *   content/features/fudge-points.js        Gradebook page, New Quiz column menus
  *   content/features/module-breadcrumbs.js  item pages; Course > Module > Item breadcrumbs
+ *   content/features/class-progress.js        Class Progress page; show all students, show all assignments, export CSV
  *   content/main.js                         decides which features run on this page and starts them
  *
  * How the files share code
