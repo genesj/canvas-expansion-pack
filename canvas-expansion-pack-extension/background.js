@@ -21,6 +21,7 @@ const SCRIPT_FILES = [
   'content/features/module-breadcrumbs.js',
   'content/features/advanced-reports.js',
   'content/main.js',
+  'content/new-quizzes.js'
 ];
 
 // One sync at a time, so two events can't both try to register the script.
