@@ -32,6 +32,10 @@ As this one edits student grade data, it should be considered _extremely experim
 ## Course Navigation
 ### Moodle-Style Breadcrumb Navigation
 Replaces the default breadcrumb navigation behavior with one based on modules. When (and only when) browsing the course through the Modules screen, clicking on an item will allow you to navigate back to the module it was in via the breadcrumbs. 
+## Advanced Reporting
+There are new reports added to Canvas by this extension. They mostly collate data available elsewhere inside the LMS into a more readable format. They can be accessed via the "Advanced Reports ▾" button on the Modules page. These reports are:
+- Class Progress
+- Submission Log
 
 # Notes on Fragility
 Item Bank Sharing and Bulk Fudge Points both rely on undocumented parts of the Canvas API and are subject to break upon any update that modifies the API.

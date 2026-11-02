@@ -12,3 +12,7 @@ Version 1 made publicly available
 - server check is more strict
 ### New Feature: Moodle-Style Breadcrumbs
 - clicking on an item in a module now allows you to navigate back to the module via breadcrumbs
+
+## 2026-11-02 -- Advanced Reporting
+- new feature: Advanced Reports
+  - submenu contains two different reports that aren't ordinarily available in Canvas. access via the modules page
