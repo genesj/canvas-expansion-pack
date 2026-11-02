@@ -13,6 +13,7 @@ const SCRIPT_ID = 'canvas-bulk-tools';
 const SCRIPT_FILES = [
   'content/core.js',
   'content/ui.js',
+  'content/new-quizzes.js',
   'content/bulk-edit.js',
   'content/features/item-bank-sharing.js',
   'content/features/modules-batch-edit.js',
@@ -21,7 +22,6 @@ const SCRIPT_FILES = [
   'content/features/module-breadcrumbs.js',
   'content/features/advanced-reports.js',
   'content/main.js',
-  'content/new-quizzes.js'
 ];
 
 // One sync at a time, so two events can't both try to register the script.

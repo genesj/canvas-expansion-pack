@@ -779,7 +779,8 @@
       for (const [i, ps] of sessions.entries()) {
         if (token !== run) throw new Cancelled();
         const att = await newQuizzes.attempt(conn, ps.id);
-        events.push(...quizLogEvents(await newQuizzes.sessionEvents(att), a, ps.attempt || i + 1));
+        const mod = await newQuizzes.logLogin(conn, att.sessionId);
+        events.push(...quizLogEvents(await newQuizzes.sessionEvents(att, mod), a, ps.attempt || i + 1));
       }
       return events;
     }
@@ -788,6 +789,13 @@
     async function loadQuizLogs(s, data, token) {
       const quizzes = log.assignments.filter(a => a.type === 'NewQuiz' && data.events.some(e => e.kind === 'submitted' && e.assignment === a));
       if (!quizzes.length) return;
+      // content/new-quizzes.js didn't load: an extension that wasn't reloaded after an update.
+      if (!newQuizzes) {
+        data.quizzes = { done: 0, total: 0, loading: false,
+          failed: ['any quiz: the extension needs reloading (on chrome://extensions) to pick up content/new-quizzes.js'] };
+        data.onQuizDone?.();
+        return;
+      }
       data.quizzes = { done: 0, total: quizzes.length, failed: [], loading: true };
       const update = () => data.onQuizProgress?.();
       update();
