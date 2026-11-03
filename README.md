@@ -35,8 +35,10 @@ Replaces the default breadcrumb navigation behavior with one based on modules. W
 ## Advanced Reporting
 There are new reports added to Canvas by this extension. They mostly collate data available elsewhere inside the LMS into a more readable format. They can be accessed via the "Advanced Reports ▾" button on the Modules page. These reports are:
 - Class Progress
+  - Collates completion condition status for entire class on one list.
 - Submission Log
-
+  - Similar in functionality to Moodle's logs. Course activity and submissions are shown here. Some of this info is mirrored elsewhere in Canvas; this is an alternate way of accessing it.
+  
 # Notes on Fragility
 Item Bank Sharing and Bulk Fudge Points both rely on undocumented parts of the Canvas API and are subject to break upon any update that modifies the API.
 
