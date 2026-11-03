@@ -3,8 +3,8 @@
   "name": "Canvas Expansion Pack",
   "short_name": "Canvas Expansion Pack",
   "version": "2026.11.03",
-  "version_name": "2026-11-03",
-  "description": "Various tools for Canvas: bulk item bank sharing, module and assignment batch editing, New Quiz fudge points, new reporting capabilities, and module breadcrumbs.",
+  "version_name": "2026.11.03",
+  "description": "Various tools for Canvas: batch editing, new reporting capabilities, and improved navigation.",
   "author": "Gene Smith-James",
   "minimum_chrome_version": "121",
   "browser_specific_settings": {
