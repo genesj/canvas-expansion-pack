@@ -3,7 +3,10 @@
 // The Modules Batch Edit tools for the Assignments page: select assignments
 // with checkboxes (Shift-click for a range, or a whole group), then move them
 // to another spot or assignment group, publish, unpublish, delete, or rename
-// them. Assignment groups can be renamed all at once too.
+// them. Checking a group's header selects the group itself, so Delete can
+// remove whole assignment groups too (empty ones, or ones with assignments,
+// after asking whether to delete the group or only what's in it).
+// Assignment groups can be renamed all at once too.
 // The bar, preview, apply loop, move picker and rename dialog come from bulk-edit.js.
 
 (() => {
@@ -21,13 +24,21 @@
       cursor: pointer;
       user-select: none; /* Shift-click selects a range, not text */
     }
-    body.cbt-asg-on .cbt-asg-row:not(.cbt-asg-selected):hover .ig-row {
+    body.cbt-asg-on .cbt-asg-row:not(.cbt-asg-selected):hover .ig-row,
+    body.cbt-asg-on .cbt-asg-head:not(.cbt-asg-selected):hover {
       background: var(--cbt-hover) !important;
+    }
+    body.cbt-asg-on .cbt-asg-head {
+      cursor: pointer;
+      user-select: none;
     }
     body.cbt-asg-on .cbt-asg-selected,
     body.cbt-asg-on .cbt-asg-selected .ig-row {
       background: var(--cbt-selected-row) !important;
     }
+    .cbt-dialog .cbt-asg-delete-what { margin: 10px 0 0; padding: 0; border: 0; }
+    .cbt-dialog .cbt-asg-delete-what legend { font-weight: bold; padding: 0; margin-bottom: 4px; }
+    .cbt-dialog .cbt-asg-delete-what label { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
   `);
 
   function createAssignmentsBatchEditFeature() {
@@ -54,6 +65,7 @@
 
     const state = { groups: [], order: [], index: new Map() };
     const selected = new Set();
+    const selectedGroups = new Set(); // empty groups whose header box is checked
 
     const cid = () => courseId();
     const assignmentPath = a => `/api/v1/courses/${cid()}/assignments/${a.id}`;
@@ -104,12 +116,76 @@
         short: 'Delete', icon: 'icon-trash',
         label: 'Delete', button: 'Delete', done: 'deleted',
         confirmWord: 'delete',
-        note: 'This deletes the assignments from the course, not just from this page. ' +
-          'Their submissions and grades go with them, and quizzes and graded discussions are deleted too.',
-        plan: a => ({ change: a.has_submitted_submissions ? 'delete (students have submitted)' : 'delete' }),
-        run: a => canvas.request('DELETE', assignmentPath(a)),
+        note: 'This deletes from the course, not just from this page. Submissions and grades go with ' +
+          'the assignments, and quizzes and graded discussions are deleted too.',
+        controls: deleteControls,
+        planAll: planDelete,
       },
     ];
+
+    // ---- Delete ----
+    // A checked group header selects the group itself. Selected empty groups are
+    // simply deleted. For selected groups that have assignments, the preview asks
+    // whether to delete the groups (Canvas deletes their assignments with them)
+    // or only the assignments in them.
+    const GROUP_ROW = { name: 'Assignment group' };
+    const groupPath = g => `/api/v1/courses/${cid()}/assignment_groups/${g.id}`;
+    const assignmentCount = n => `${n} assignment${plural(n)}`;
+
+    function deleteControls() {
+      if (!pickedGroups().some(g => g.assignments.length)) return null;
+      const name = 'cbt-asg-delete-what';
+      const groupsRadio = el('input', { type: 'radio', name, value: 'groups' });
+      const contentsRadio = el('input', { type: 'radio', name, value: 'contents' });
+      const node = el('fieldset', { className: 'cbt-asg-delete-what' },
+        el('legend', { textContent: 'Some of the selected assignment groups have assignments in them. Delete:' }),
+        el('label', {}, groupsRadio, el('span', { textContent: 'The groups and the assignments in them' })),
+        el('label', {}, contentsRadio, el('span', { textContent: 'Only the assignments (keep the groups that have them)' })));
+      return {
+        node,
+        focus: groupsRadio,
+        values: () => ({ what: groupsRadio.checked ? 'groups' : contentsRadio.checked ? 'contents' : null }),
+        onChange: fn => node.addEventListener('change', fn),
+      };
+    }
+
+    function planDelete(picked, { what } = {}) {
+      const groups = pickedGroups();
+      const hasContents = groups.some(g => g.assignments.length);
+      if (hasContents && !what) {
+        return {
+          pending: 'Choose whether to delete the groups or only the assignments in them.', change: [], skip: [],
+          summary: `${groups.length} assignment group${plural(groups.length)} and ${assignmentCount(picked.length)}`,
+        };
+      }
+      // Empty groups always go; groups with assignments only when asked to.
+      let doomed = groups.filter(g => !g.assignments.length || what === 'groups');
+      const skip = [];
+      if (doomed.length && doomed.length === state.groups.length) {
+        const keep = doomed.shift();
+        skip.push({ item: keep, group: GROUP_ROW, title: keep.name, text: 'kept: a course needs at least one assignment group' });
+      }
+      const doomedIds = new Set(doomed.map(g => String(g.id)));
+
+      const change = doomed.map(g => ({
+        item: g, group: GROUP_ROW, title: g.name,
+        text: g.assignments.length ? `delete with its ${assignmentCount(g.assignments.length)}` : 'delete (empty)',
+        run: () => canvas.request('DELETE', groupPath(g)),
+      }));
+      const singles = picked.filter(r => !doomedIds.has(String(r.group.id)));
+      for (const r of singles) {
+        change.push({ ...r,
+          text: r.item.has_submitted_submissions ? 'delete (students have submitted)' : 'delete',
+          run: () => canvas.request('DELETE', assignmentPath(r.item)) });
+      }
+
+      const inGroups = doomed.reduce((sum, g) => sum + g.assignments.length, 0);
+      const parts = [];
+      if (doomed.length) parts.push(`${doomed.length} assignment group${plural(doomed.length)}`);
+      const total = inGroups + singles.length;
+      if (total) parts.push(assignmentCount(total));
+      return { change, skip, summary: doomed.length ? parts.join(' and ') : undefined };
+    }
 
     // ---- Move ----
     function moveControls(picked) {
@@ -171,7 +247,18 @@
       state.order = groups.flatMap(g => g.assignments.map(a => String(a.id)));
       state.index = new Map(state.order.map((id, i) => [id, i]));
       for (const id of selected) if (!state.index.has(id)) selected.delete(id);
+      for (const id of selectedGroups) {
+        if (groupById(id)?.assignments.length !== 0) selectedGroups.delete(id);
+      }
     }
+
+    // A group is selected when its header box is checked: every assignment in
+    // it is selected, or, for an empty group, the box itself was checked.
+    const groupPicked = g => (g.assignments.length
+      ? g.assignments.every(a => selected.has(String(a.id)))
+      : selectedGroups.has(String(g.id)));
+    const pickedGroups = () => state.groups.filter(groupPicked);
+    const emptyGroups = () => state.groups.filter(g => !g.assignments.length);
 
     const store = sessionStore('cbt-assignments');
 
@@ -188,7 +275,7 @@
 
     function buildUI() {
       ui.batch = launchMenu('cbt-asg-toggle', 'Batch Edit', [
-        { label: 'Edit assignments', hint: 'Select assignments to move, publish, unpublish, or delete', onSelect: () => enterBulk() },
+        { label: 'Edit assignments', hint: 'Select assignments or groups to move, publish, unpublish, or delete', onSelect: () => enterBulk() },
         { label: 'Rename assignments…', hint: 'Select assignments, then rename them together', onSelect: () => enterBulk(null, 'rename') },
         { label: 'Rename assignment groups…', hint: 'Rename every assignment group at once', onSelect: showRenameGroups },
       ]);
@@ -203,8 +290,13 @@
         extraTools: [{ short: 'Rename selected…', icon: 'icon-edit', onClick: showRenameAssignments }],
         picked: selectedRows,
         onSelectAll: on => {
-          if (on) state.order.forEach(id => selected.add(id));
-          else selected.clear();
+          if (on) {
+            state.order.forEach(id => selected.add(id));
+            emptyGroups().forEach(g => selectedGroups.add(String(g.id)));
+          } else {
+            selected.clear();
+            selectedGroups.clear();
+          }
           sync();
         },
         onExit: exitBulk,
@@ -267,12 +359,17 @@
       ui.page?.removeEventListener('click', onRowClick, true);
       document.body.classList.remove('cbt-asg-on');
       document.querySelectorAll('.cbt-asg-injected').forEach(cb => cb.remove());
+      document.querySelectorAll('.cbt-asg-head').forEach(h => {
+        h.classList.remove('cbt-asg-head', 'cbt-asg-selected');
+        delete h.dataset.cbtAsgGroup;
+      });
       document.querySelectorAll('.cbt-asg-row').forEach(li => {
         li.classList.remove('cbt-asg-row', 'cbt-asg-selected');
         delete li.dataset.cbtAsgId;
       });
       placer.reset();
       selected.clear();
+      selectedGroups.clear();
       lastClicked = null;
       editor.setBusy(false);
       editor.hide();
@@ -321,16 +418,11 @@
 
         const head = SEL.group(g.id)?.querySelector(SEL.groupHeader);
         if (!head || head.querySelector('.cbt-asg-injected[data-group]')) continue;
-        const cb = pageCheckbox(`Select all assignments in ${g.name}`);
+        const cb = pageCheckbox(g.assignments.length ? `Select ${g.name} and all assignments in it` : `Select ${g.name}`);
         cb.dataset.group = g.id;
-        cb.disabled = !g.assignments.length;
-        cb.addEventListener('change', () => {
-          for (const a of g.assignments) {
-            if (cb.checked) selected.add(String(a.id));
-            else selected.delete(String(a.id));
-          }
-          sync();
-        });
+        cb.addEventListener('change', () => toggleGroup(g, cb.checked));
+        head.classList.add('cbt-asg-head');
+        head.dataset.cbtAsgGroup = g.id;
         placer.header(cb, head);
         added = true;
       }
@@ -356,9 +448,32 @@
       sync();
     }
 
-    // Clicking anywhere on a row (except its own controls) toggles it.
+    // Selects or clears a whole group: its assignments, or the empty group itself.
+    function toggleGroup(g, on) {
+      for (const a of g.assignments) {
+        if (on) selected.add(String(a.id));
+        else selected.delete(String(a.id));
+      }
+      if (!g.assignments.length) {
+        if (on) selectedGroups.add(String(g.id));
+        else selectedGroups.delete(String(g.id));
+      }
+      sync();
+    }
+
+    // Clicking anywhere on a row or group header (except its own controls)
+    // toggles it, instead of opening the assignment or collapsing the group.
     function onRowClick(e) {
       if (editor.busy || e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey) return;
+      const head = e.target.closest('.cbt-asg-head');
+      if (head) {
+        const g = groupById(head.dataset.cbtAsgGroup);
+        if (!g || e.target.closest(SEL.rowPassThrough)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        toggleGroup(g, !groupPicked(g));
+        return;
+      }
       const li = e.target.closest('.cbt-asg-row');
       if (!li || e.target.closest(SEL.rowPassThrough)) return;
       const id = li.dataset.cbtAsgId;
@@ -378,10 +493,17 @@
         const box = SEL.group(g.id)?.querySelector('.cbt-asg-injected[data-group]');
         if (!box) continue;
         const n = g.assignments.reduce((sum, a) => sum + selected.has(String(a.id)), 0);
-        box.checked = n > 0 && n === g.assignments.length;
+        box.checked = groupPicked(g);
+        SEL.group(g.id)?.querySelector('.cbt-asg-head')?.classList.toggle('cbt-asg-selected', box.checked);
         box.indeterminate = n > 0 && n < g.assignments.length;
       }
-      editor.syncBar({ selected: selected.size, total: state.order.length, message, warn });
+      // Selected empty groups count toward the bar, so Delete can act on them alone.
+      const empties = emptyGroups();
+      editor.syncBar({
+        selected: selected.size + empties.filter(groupPicked).length,
+        total: state.order.length + empties.length,
+        message, warn,
+      });
     }
 
     const selectedRows = () => state.groups.flatMap(group =>

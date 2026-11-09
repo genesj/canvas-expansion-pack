@@ -249,9 +249,10 @@
   // assignment group (anything with a .name).
   //
   // Each action: plan(item, group) → { skip } | { change }, run(item, group) → Response.
-  // Or planAll(picked, values) → { change, skip, pending?, runAll? } for actions
-  // that plan the whole selection at once. With runAll, one request does the
-  // whole change list and its response counts for every row.
+  // Or planAll(picked, values) → { change, skip, pending?, runAll?, summary? } for
+  // actions that plan the whole selection at once. With runAll, one request does
+  // the whole change list and its response counts for every row. summary replaces
+  // the "N items" in the heading and button (for plans that mix in other things).
   // Optional: prepare(picked) loads anything plan() needs before the preview opens;
   // controls(picked) adds inputs to the preview; confirmWord makes the user type
   // that word before the button unlocks; danger, note, collapseDetails.
@@ -363,8 +364,8 @@
         const { change = [], skip = [], pending } = plan;
         const n = change.length;
         const total = pending ? rows.length : n;
-        heading.textContent = total ? `${action.label}: ${nouns(total)}` : 'Nothing to change';
-        confirmBtn.textContent = n ? `${action.button} ${nouns(n)}` : action.button;
+        heading.textContent = total ? `${action.label}: ${plan.summary || nouns(total)}` : 'Nothing to change';
+        confirmBtn.textContent = n ? `${action.button} ${plan.summary || nouns(n)}` : action.button;
         confirmBtn.disabled = !n || !confirmed();
         const lists = [
           n ? list(change) : '',
