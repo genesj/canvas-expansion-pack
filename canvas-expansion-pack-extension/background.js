@@ -7,14 +7,17 @@
  * removing a site in Chrome's own extension settings turns the tools off too.
  */
 
+// Kept from the extension's old name on purpose: the script is registered with
+// persistAcrossSessions, so a new id would leave the old registration behind
+// on existing installs and run everything twice.
 const SCRIPT_ID = 'canvas-bulk-tools';
 // Run in this order: core.js first, then ui.js, the features, and main.js
 // last (it starts the features). A new feature file goes before main.js.
 const SCRIPT_FILES = [
   'content/core.js',
   'content/ui.js',
+  'content/batch-edit.js',
   'content/new-quizzes.js',
-  'content/bulk-edit.js',
   'content/features/item-bank-sharing.js',
   'content/features/modules-batch-edit.js',
   'content/features/assignments-batch-edit.js',

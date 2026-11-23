@@ -5,11 +5,11 @@
 
   const {
     btn, canvas, chunk, courseId, debug, el, launch, launchMenu, mapLimit,
-    plural, sessionStore, waitFor, addStyles, register, bulkEditor, moveTree, renamer, checkPlacer,
+    plural, sessionStore, waitFor, addStyles, register, batchEditor, moveTree, renamer, checkPlacer,
   } = window.__canvasExpansionPack;
 
   addStyles(String.raw`
-    /* ================= Module Bulk Edit ================= */
+    /* ================= Modules Batch Edit ================= */
     body.cbt-mod-on #cbt-mod-toggle.cbt-floating { display: none; }
     body.cbt-mod-on { padding-bottom: 110px; } /* keep the bar off the last items */
 
@@ -67,7 +67,7 @@
     const updateItem = (item, fields) => canvas.request('PUT', itemPath(item), { module_item: fields });
     const moduleById = id => state.modules.find(m => String(m.id) === String(id));
 
-    // Actions follow the shape described in bulk-edit.js; the group is the module.
+    // Actions follow the shape described in batch-edit.js; the group is the module.
     const ACTIONS = [
       {
         id: 'move', enabled: true,
@@ -282,7 +282,7 @@
     // ---- UI ----
     const ui = {};
     let editor = null;
-    let bulkOn = false;
+    let batchOn = false;
     let loaded = false;
     let lastClicked = null;
     let observer = null;
@@ -292,15 +292,15 @@
 
     function buildUI() {
       ui.batch = launchMenu('cbt-mod-toggle', 'Batch Edit', [
-        { label: 'Edit items', hint: 'Select items to move, indent, publish, or remove', onSelect: () => enterBulk() },
-        { label: 'Rename items…', hint: 'Select items, then rename them together', onSelect: () => enterBulk(null, 'rename') },
+        { label: 'Edit items', hint: 'Select items to move, indent, publish, or remove', onSelect: () => enterBatch() },
+        { label: 'Rename items…', hint: 'Select items, then rename them together', onSelect: () => enterBatch(null, 'rename') },
         { label: 'Rename modules…', hint: 'Rename every module at once', onSelect: showRenameModules },
       ]);
       const anchor = document.querySelector(SEL.toolbarAnchor);
       if (anchor) launch.dock(ui.batch.button, anchor);
       else launch.float(ui.batch.button);
 
-      editor = bulkEditor({
+      editor = batchEditor({
         key: 'mod',
         noun: 'item',
         actions: ACTIONS,
@@ -311,7 +311,7 @@
           else selected.clear();
           sync();
         },
-        onExit: exitBulk,
+        onExit: exitBatch,
         onChange: sync,
         // Reload so the page shows Canvas's real state; the notice and selection survive it.
         afterApply: (notice, ok) => {
@@ -330,13 +330,13 @@
 
     // mode 'edit' shows the edit tools; 'rename' shows only "Rename selected…".
     // Selecting items works the same way in both.
-    async function enterBulk(saved, mode = 'edit') {
+    async function enterBatch(saved, mode = 'edit') {
       const mine = ++session;
-      bulkOn = true;
+      batchOn = true;
       const renaming = mode === 'rename';
       ui.tools.forEach(b => { b.hidden = (b === ui.renameTool) !== renaming; });
       document.body.classList.add('cbt-mod-on');
-      ui.batch.setOverride({ label: renaming ? 'Exit Rename Items' : 'Exit Bulk Edit', onClick: exitBulk });
+      ui.batch.setOverride({ label: renaming ? 'Exit Rename Items' : 'Exit Batch Edit', onClick: exitBatch });
       editor.show();
       (saved?.selected || []).forEach(id => selected.add(String(id)));
 
@@ -362,9 +362,9 @@
       editor.ui.selAll.focus();
     }
 
-    function exitBulk() {
+    function exitBatch() {
       session++;
-      bulkOn = false;
+      batchOn = false;
       loaded = false;
       observer?.disconnect();
       observer = null;
@@ -399,7 +399,7 @@
     }
 
     function decorate() {
-      if (!bulkOn || !loaded) return;
+      if (!batchOn || !loaded) return;
       let added = false;
       for (const m of state.modules) {
         for (const item of m.items) {
@@ -543,7 +543,7 @@
       const saved = store.take();
       if (!saved) return;
       if (saved.rename) return ui.rename.showResult(saved.rename);
-      await enterBulk(saved);
+      await enterBatch(saved);
       if (saved.notice) editor.showNotice(saved.notice);
     }
 

@@ -7,14 +7,14 @@
 // remove whole assignment groups too (empty ones, or ones with assignments,
 // after asking whether to delete the group or only what's in it).
 // Assignment groups can be renamed all at once too.
-// The bar, preview, apply loop, move picker and rename dialog come from bulk-edit.js.
+// The bar, preview, apply loop, move picker and rename dialog come from batch-edit.js.
 
 (() => {
   'use strict';
 
   const {
     btn, canvas, courseId, el, launch, launchMenu, plural, sessionStore, waitFor, addStyles, register,
-    bulkEditor, moveTree, renamer, checkPlacer,
+    batchEditor, moveTree, renamer, checkPlacer,
   } = window.__canvasExpansionPack;
 
   addStyles(String.raw`
@@ -80,7 +80,7 @@
       return 'assignment';
     };
 
-    // Actions follow the shape described in bulk-edit.js; the group is the assignment group.
+    // Actions follow the shape described in batch-edit.js; the group is the assignment group.
     // Publish, unpublish and delete use the same calls as the Assignments page's own
     // buttons, so quizzes and graded discussions follow along the way they do there.
     const ACTIONS = [
@@ -265,7 +265,7 @@
     // ---- UI ----
     const ui = {};
     let editor = null;
-    let bulkOn = false;
+    let batchOn = false;
     let loaded = false;
     let lastClicked = null;
     let observer = null;
@@ -275,15 +275,15 @@
 
     function buildUI() {
       ui.batch = launchMenu('cbt-asg-toggle', 'Batch Edit', [
-        { label: 'Edit assignments', hint: 'Select assignments or groups to move, publish, unpublish, or delete', onSelect: () => enterBulk() },
-        { label: 'Rename assignments…', hint: 'Select assignments, then rename them together', onSelect: () => enterBulk(null, 'rename') },
+        { label: 'Edit assignments', hint: 'Select assignments or groups to move, publish, unpublish, or delete', onSelect: () => enterBatch() },
+        { label: 'Rename assignments…', hint: 'Select assignments, then rename them together', onSelect: () => enterBatch(null, 'rename') },
         { label: 'Rename assignment groups…', hint: 'Rename every assignment group at once', onSelect: showRenameGroups },
       ]);
       const anchor = document.querySelector(SEL.toolbarAnchor);
       if (anchor) launch.dock(ui.batch.button, anchor);
       else launch.float(ui.batch.button);
 
-      editor = bulkEditor({
+      editor = batchEditor({
         key: 'asg',
         noun: 'assignment',
         actions: ACTIONS,
@@ -299,7 +299,7 @@
           }
           sync();
         },
-        onExit: exitBulk,
+        onExit: exitBatch,
         onChange: sync,
         // Reload so the page shows Canvas's real state; the notice and selection survive it.
         afterApply: (notice, ok) => {
@@ -317,13 +317,13 @@
 
     // mode 'edit' shows the edit tools; 'rename' shows only "Rename selected…".
     // Selecting assignments works the same way in both.
-    async function enterBulk(saved, mode = 'edit') {
+    async function enterBatch(saved, mode = 'edit') {
       const mine = ++session;
-      bulkOn = true;
+      batchOn = true;
       const renaming = mode === 'rename';
       ui.tools.forEach(b => { b.hidden = (b === ui.renameTool) !== renaming; });
       document.body.classList.add('cbt-asg-on');
-      ui.batch.setOverride({ label: renaming ? 'Exit Rename Assignments' : 'Exit Batch Edit', onClick: exitBulk });
+      ui.batch.setOverride({ label: renaming ? 'Exit Rename Assignments' : 'Exit Batch Edit', onClick: exitBatch });
       editor.show();
       (saved?.selected || []).forEach(id => selected.add(String(id)));
 
@@ -350,9 +350,9 @@
       editor.ui.selAll.focus();
     }
 
-    function exitBulk() {
+    function exitBatch() {
       session++;
-      bulkOn = false;
+      batchOn = false;
       loaded = false;
       observer?.disconnect();
       observer = null;
@@ -388,14 +388,14 @@
     }
 
     function pageCheckbox(label) {
-      const cb = el('input', { type: 'checkbox', className: 'cbt-bulk-check cbt-asg-injected', ariaLabel: label });
+      const cb = el('input', { type: 'checkbox', className: 'cbt-batch-check cbt-asg-injected', ariaLabel: label });
       // Keep Canvas's own handlers (drag, collapse the group, open the assignment) from seeing these clicks.
       ['click', 'mousedown', 'pointerdown', 'keydown'].forEach(t => cb.addEventListener(t, e => e.stopPropagation()));
       return cb;
     }
 
     function decorate() {
-      if (!bulkOn || !loaded) return;
+      if (!batchOn || !loaded) return;
       let added = false;
       for (const g of state.groups) {
         for (const a of g.assignments) {
@@ -566,7 +566,7 @@
       const saved = store.take();
       if (!saved) return;
       if (saved.rename) return ui.rename.showResult(saved.rename);
-      await enterBulk(saved);
+      await enterBatch(saved);
       if (saved.notice) editor.showNotice(saved.notice);
     }
 

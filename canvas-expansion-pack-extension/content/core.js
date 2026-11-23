@@ -5,13 +5,14 @@
  * another, in the order listed in SCRIPT_FILES in background.js:
  *   content/core.js                         config, helpers, Canvas REST client (this file)
  *   content/ui.js                           stylesheet (theme colors at the top), launch buttons, dialogs
- *   content/bulk-edit.js                    Batch Edit bar, preview, apply loop and move picker (Modules + Assignments)
+ *   content/batch-edit.js                    Batch Edit bar, preview, apply loop and move picker (Modules + Assignments)
+ *   content/new-quizzes.js                  New Quizzes sign-in and attempt reads (Fudge Points, Submission Log)
  *   content/features/item-bank-sharing.js   Item Banks page
  *   content/features/modules-batch-edit.js  Modules page / course home; edit items, rename items, rename modules
- *   content/features/advanced-reports.js  Assignments page; move, publish, unpublish, delete
+ *   content/features/assignments-batch-edit.js  Assignments page; move, publish, unpublish, delete
  *   content/features/fudge-points.js        Gradebook page, New Quiz column menus
  *   content/features/module-breadcrumbs.js  item pages; Course > Module > Item breadcrumbs
- *   content/features/class-progress.js        Class Progress page; show all students, show all assignments, export CSV
+ *   content/features/advanced-reports.js    Modules page; Advanced Reports menu (Class Progress grid, Submission Log)
  *   content/main.js                         decides which features run on this page and starts them
  *
  * How the files share code

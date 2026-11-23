@@ -2,7 +2,7 @@
 //
 // Used by Modules Batch Edit and Assignments Batch Edit. Each feature keeps its
 // own page checkboxes and data; this file supplies the rest:
-//   bulkEditor()  the floating bar, the preview dialog, the paced apply loop
+//   batchEditor()  the floating bar, the preview dialog, the paced apply loop
 //                 with Stop, and the results notice
 //   moveTree()    the "where should these go?" picker used by Move
 //   planList()    the title · context · change lists used in every dialog
@@ -16,7 +16,7 @@
 
   addStyles(String.raw`
     /* ================= Batch Edit (shared) ================= */
-    .cbt-bulk-check {
+    .cbt-batch-check {
       width: 18px;
       height: 18px;
       margin: 0 8px 0 6px;
@@ -27,8 +27,8 @@
     }
 
     /* Page checkboxes in the gutter left of the module / assignment group box */
-    .cbt-bulk-has-outside { position: relative; }
-    input.cbt-bulk-outside {
+    .cbt-batch-has-outside { position: relative; }
+    input.cbt-batch-outside {
       position: absolute;
       left: calc(-1 * var(--cbt-outside-gap));
       top: 50%;
@@ -36,7 +36,7 @@
       margin: 0;
     }
 
-    .cbt-bulk-bar {
+    .cbt-batch-bar {
       position: fixed;
       left: 50%;
       bottom: 16px;
@@ -48,14 +48,14 @@
       border-radius: 8px;
       box-shadow: 0 6px 24px rgba(0, 0, 0, .2);
     }
-    .cbt-bulk-bar .cbt-bulk-main {
+    .cbt-batch-bar .cbt-batch-main {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 12px;
       padding: 8px 12px;
     }
-    .cbt-bulk-bar .cbt-bulk-selall {
+    .cbt-batch-bar .cbt-batch-selall {
       display: flex;
       align-items: center;
       gap: 4px;
@@ -64,15 +64,15 @@
       white-space: nowrap;
       cursor: pointer;
     }
-    .cbt-bulk-bar .cbt-bulk-selall .cbt-bulk-check { margin-left: 0; }
-    .cbt-bulk-bar .cbt-bulk-tools {
+    .cbt-batch-bar .cbt-batch-selall .cbt-batch-check { margin-left: 0; }
+    .cbt-batch-bar .cbt-batch-tools {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: 2px;
       margin: 0 auto;
     }
-    .cbt-bulk-bar .cbt-bulk-tool {
+    .cbt-batch-bar .cbt-batch-tool {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -86,15 +86,15 @@
       font: inherit;
       cursor: pointer;
     }
-    .cbt-bulk-bar .cbt-bulk-tool i { font-size: 18px; line-height: 1; }
-    .cbt-bulk-bar .cbt-bulk-tool:hover:not(:disabled) {
+    .cbt-batch-bar .cbt-batch-tool i { font-size: 18px; line-height: 1; }
+    .cbt-batch-bar .cbt-batch-tool:hover:not(:disabled) {
       background: var(--cbt-hover);
       border-color: var(--cbt-border);
     }
-    .cbt-bulk-bar .cbt-bulk-tool.cbt-danger { color: var(--cbt-danger); }
-    .cbt-bulk-bar .cbt-bulk-tool:disabled { opacity: .4; cursor: default; }
-    .cbt-bulk-count { font-size: 13px; color: var(--cbt-muted); white-space: nowrap; }
-    .cbt-bulk-bar .cbt-bulk-x {
+    .cbt-batch-bar .cbt-batch-tool.cbt-danger { color: var(--cbt-danger); }
+    .cbt-batch-bar .cbt-batch-tool:disabled { opacity: .4; cursor: default; }
+    .cbt-batch-count { font-size: 13px; color: var(--cbt-muted); white-space: nowrap; }
+    .cbt-batch-bar .cbt-batch-x {
       padding: 4px 8px;
       background: none;
       border: 0;
@@ -104,8 +104,8 @@
       line-height: 1;
       cursor: pointer;
     }
-    .cbt-bulk-bar .cbt-bulk-x:hover { background: var(--cbt-hover); }
-    .cbt-bulk-bar .cbt-bulk-notice {
+    .cbt-batch-bar .cbt-batch-x:hover { background: var(--cbt-hover); }
+    .cbt-batch-bar .cbt-batch-notice {
       display: flex;
       align-items: flex-start;
       gap: 8px;
@@ -114,15 +114,15 @@
       border-bottom: 1px solid var(--cbt-border-light);
       border-radius: 8px 8px 0 0;
     }
-    .cbt-bulk-bar .cbt-bulk-notice > div { flex: 1; }
-    .cbt-bulk-bar .cbt-bulk-notice .cbt-bulk-x { font-size: 16px; }
-    .cbt-bulk-bar details { margin-top: 4px; }
-    .cbt-bulk-bar summary { color: var(--cbt-danger); cursor: pointer; }
-    .cbt-bulk-bar .cbt-list { max-height: 120px; }
+    .cbt-batch-bar .cbt-batch-notice > div { flex: 1; }
+    .cbt-batch-bar .cbt-batch-notice .cbt-batch-x { font-size: 16px; }
+    .cbt-batch-bar details { margin-top: 4px; }
+    .cbt-batch-bar summary { color: var(--cbt-danger); cursor: pointer; }
+    .cbt-batch-bar .cbt-list { max-height: 120px; }
 
-    .cbt-dialog details.cbt-bulk-details { margin-top: 10px; }
-    .cbt-dialog details.cbt-bulk-details summary { color: var(--cbt-primary); cursor: pointer; }
-    .cbt-bulk-confirm {
+    .cbt-dialog details.cbt-batch-details { margin-top: 10px; }
+    .cbt-dialog details.cbt-batch-details summary { color: var(--cbt-primary); cursor: pointer; }
+    .cbt-batch-confirm {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
@@ -132,23 +132,23 @@
       border: 1px solid var(--cbt-danger);
       border-radius: 4px;
     }
-    .cbt-bulk-confirm input { width: 120px; }
+    .cbt-batch-confirm input { width: 120px; }
 
     /* Move: the miniature list of modules / assignment groups */
-    .cbt-bulk-tree {
+    .cbt-batch-tree {
       max-height: 50vh;
       overflow: auto;
       margin-top: 8px;
       border: 1px solid var(--cbt-border);
       border-radius: 4px;
     }
-    .cbt-bulk-tree-group + .cbt-bulk-tree-group { border-top: 1px solid var(--cbt-border); }
-    .cbt-bulk-tree-head {
+    .cbt-batch-tree-group + .cbt-batch-tree-group { border-top: 1px solid var(--cbt-border); }
+    .cbt-batch-tree-head {
       display: flex;
       align-items: stretch;
       background: var(--cbt-module-bg);
     }
-    .cbt-bulk-tree-toggle {
+    .cbt-batch-tree-toggle {
       flex: none;
       width: 36px;
       padding: 0;
@@ -157,8 +157,8 @@
       color: var(--cbt-text);
       cursor: pointer;
     }
-    .cbt-bulk-tree-dest,
-    .cbt-bulk-tree-item {
+    .cbt-batch-tree-dest,
+    .cbt-batch-tree-item {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -172,22 +172,22 @@
       font: inherit;
       text-align: left;
     }
-    .cbt-bulk-tree-dest { cursor: pointer; }
-    .cbt-bulk-tree-head .cbt-bulk-tree-dest { padding-left: 0; font-weight: 700; }
-    .cbt-bulk-tree-item { border-top: 1px solid var(--cbt-border-light); }
-    .cbt-bulk-tree-dest:hover { background: var(--cbt-selected-row); }
-    .cbt-bulk-tree-item.cbt-chosen,
-    .cbt-bulk-tree-head.cbt-chosen {
+    .cbt-batch-tree-dest { cursor: pointer; }
+    .cbt-batch-tree-head .cbt-batch-tree-dest { padding-left: 0; font-weight: 700; }
+    .cbt-batch-tree-item { border-top: 1px solid var(--cbt-border-light); }
+    .cbt-batch-tree-dest:hover { background: var(--cbt-selected-row); }
+    .cbt-batch-tree-item.cbt-chosen,
+    .cbt-batch-tree-head.cbt-chosen {
       background: var(--cbt-selected-row);
       box-shadow: inset 4px 0 0 var(--cbt-primary);
     }
-    .cbt-bulk-tree-head:hover { background: var(--cbt-selected-row); }
-    .cbt-bulk-tree-head .cbt-bulk-tree-dest:hover { background: none; }
-    .cbt-bulk-tree-subheader { font-weight: 700; }
-    .cbt-bulk-tree i { flex: none; width: 18px; font-size: 16px; text-align: center; }
-    .cbt-bulk-tree-title { min-width: 0; overflow-wrap: anywhere; }
-    .cbt-bulk-tree-moving { color: var(--cbt-muted); font-style: italic; }
-    .cbt-bulk-tree-tag {
+    .cbt-batch-tree-head:hover { background: var(--cbt-selected-row); }
+    .cbt-batch-tree-head .cbt-batch-tree-dest:hover { background: none; }
+    .cbt-batch-tree-subheader { font-weight: 700; }
+    .cbt-batch-tree i { flex: none; width: 18px; font-size: 16px; text-align: center; }
+    .cbt-batch-tree-title { min-width: 0; overflow-wrap: anywhere; }
+    .cbt-batch-tree-moving { color: var(--cbt-muted); font-style: italic; }
+    .cbt-batch-tree-tag {
       margin-left: auto;
       padding: 0 8px;
       border: 1px solid var(--cbt-border-light);
@@ -195,7 +195,7 @@
       font-size: 12px;
       font-style: normal;
     }
-    .cbt-bulk-tree-marker {
+    .cbt-batch-tree-marker {
       margin: 4px 12px 4px 44px;
       padding: 6px 10px;
       border: 2px dashed var(--cbt-primary);
@@ -205,7 +205,7 @@
       font-weight: 600;
       text-align: center;
     }
-    .cbt-bulk-tree-empty {
+    .cbt-batch-tree-empty {
       padding: 8px 12px 8px 44px;
       border-top: 1px solid var(--cbt-border-light);
       color: var(--cbt-muted);
@@ -267,35 +267,35 @@
   //   onChange(message?, warn?)   busy state changed; redraw the page checkboxes and call syncBar
   //   afterApply(notice, ok)      return true if the feature reloads the page itself
   // ------------------------------------------------------------------
-  function bulkEditor({ key, noun = 'item', actions, extraTools = [], picked, onSelectAll, onExit, onChange, afterApply, pauseMs = 200 }) {
+  function batchEditor({ key, noun = 'item', actions, extraTools = [], picked, onSelectAll, onExit, onChange, afterApply, pauseMs = 200 }) {
     const ui = {};
     let busy = false;
     let stopRequested = false;
     const nouns = n => `${n} ${noun}${plural(n)}`;
 
     const tool = (short, icon, danger, onClick) => {
-      const b = el('button', { type: 'button', className: 'cbt-bulk-tool' + (danger ? ' cbt-danger' : '') },
+      const b = el('button', { type: 'button', className: 'cbt-batch-tool' + (danger ? ' cbt-danger' : '') },
         el('i', { className: icon || '', ariaHidden: 'true' }),
         el('span', { textContent: short }));
       b.addEventListener('click', onClick);
       return b;
     };
 
-    ui.selAll = el('input', { type: 'checkbox', className: 'cbt-bulk-check' });
+    ui.selAll = el('input', { type: 'checkbox', className: 'cbt-batch-check' });
     ui.selAll.addEventListener('change', () => onSelectAll(ui.selAll.checked));
     ui.tools = [
       ...actions.map(a => tool(a.short, a.icon, a.danger, () => showPreview(a))),
       ...extraTools.map(t => tool(t.short, t.icon, t.danger, t.onClick)),
     ];
-    ui.count = el('span', { className: 'cbt-bulk-count' });
-    ui.exit = el('button', { type: 'button', className: 'cbt-bulk-x', textContent: '×', title: 'Exit', ariaLabel: 'Exit' });
+    ui.count = el('span', { className: 'cbt-batch-count' });
+    ui.exit = el('button', { type: 'button', className: 'cbt-batch-x', textContent: '×', title: 'Exit', ariaLabel: 'Exit' });
     ui.exit.addEventListener('click', onExit);
-    ui.notice = el('div', { className: 'cbt-bulk-notice', hidden: true, role: 'status' });
-    ui.bar = el('div', { id: `cbt-${key}-bar`, className: 'cbt cbt-bulk-bar', hidden: true, role: 'region', ariaLabel: 'Bulk Edit' },
+    ui.notice = el('div', { className: 'cbt-batch-notice', hidden: true, role: 'status' });
+    ui.bar = el('div', { id: `cbt-${key}-bar`, className: 'cbt cbt-batch-bar', hidden: true, role: 'region', ariaLabel: 'Batch Edit' },
       ui.notice,
-      el('div', { className: 'cbt-bulk-main' },
-        el('label', { className: 'cbt-bulk-selall' }, ui.selAll, 'Select all'),
-        el('div', { className: 'cbt-bulk-tools', role: 'group' }, ...ui.tools),
+      el('div', { className: 'cbt-batch-main' },
+        el('label', { className: 'cbt-batch-selall' }, ui.selAll, 'Select all'),
+        el('div', { className: 'cbt-batch-tools', role: 'group' }, ...ui.tools),
         ui.count,
         ui.exit));
     document.body.append(ui.bar);
@@ -355,7 +355,7 @@
         const input = el('input', { type: 'text', autocomplete: 'off', ariaLabel: `Type ${action.confirmWord} to confirm` });
         input.addEventListener('input', () => render());
         confirmed = () => input.value.trim().toLowerCase() === action.confirmWord;
-        confirmBox = el('label', { className: 'cbt-bulk-confirm' },
+        confirmBox = el('label', { className: 'cbt-batch-confirm' },
           el('span', { textContent: `Type ${action.confirmWord} to confirm:` }), input);
       }
 
@@ -377,7 +377,7 @@
           !pending && !n ? el('p', { className: 'cbt-hint', textContent: `None of the selected ${noun}s can be changed with ${action.label}.` }) : '',
           action.note && n ? el('p', { className: 'cbt-hint', textContent: action.note }) : '',
           ...(action.collapseDetails && (n || skip.length)
-            ? [el('details', { className: 'cbt-bulk-details' },
+            ? [el('details', { className: 'cbt-batch-details' },
                 el('summary', { textContent: `Show each ${noun} (${n + skip.length})` }), ...lists)]
             : lists));
         if (confirmBox) confirmBox.hidden = !n;
@@ -462,7 +462,7 @@
     }
 
     function showNotice(notice) {
-      const dismiss = el('button', { type: 'button', className: 'cbt-bulk-x', textContent: '×',
+      const dismiss = el('button', { type: 'button', className: 'cbt-batch-x', textContent: '×',
         title: 'Dismiss', ariaLabel: 'Dismiss' });
       dismiss.addEventListener('click', () => { ui.notice.hidden = true; });
       const n = notice.failed?.length || 0;
@@ -502,15 +502,15 @@
     const listeners = [];
     let choice = null;
 
-    const tree = el('div', { className: 'cbt-bulk-tree' });
+    const tree = el('div', { className: 'cbt-batch-tree' });
     const isChosen = (groupId, where) => choice?.groupId === groupId && choice.where === where;
-    const marker = () => el('div', { className: 'cbt-bulk-tree-marker', textContent: `${count} ${noun}${plural(count)} will go here` });
+    const marker = () => el('div', { className: 'cbt-batch-tree-marker', textContent: `${count} ${noun}${plural(count)} will go here` });
 
     function choose(groupId, where) {
       choice = { groupId, where };
       expanded.add(groupId);
       draw();
-      tree.querySelector('.cbt-bulk-tree-marker')?.scrollIntoView({ block: 'nearest' });
+      tree.querySelector('.cbt-batch-tree-marker')?.scrollIntoView({ block: 'nearest' });
       listeners.forEach(fn => fn());
     }
 
@@ -521,7 +521,7 @@
     }
 
     function destination({ key, label, chosen, onClick, className = '', style = '' }, ...content) {
-      const b = el('button', { type: 'button', className: `cbt-bulk-tree-dest ${className}${chosen ? ' cbt-chosen' : ''}`,
+      const b = el('button', { type: 'button', className: `cbt-batch-tree-dest ${className}${chosen ? ' cbt-chosen' : ''}`,
         title: label, ariaLabel: label, style }, ...content);
       b.dataset.key = key;
       b.setAttribute('aria-pressed', String(chosen));
@@ -535,11 +535,11 @@
       const where = `after:${id}`;
       const style = `padding-left: ${44 + (item.indent || 0) * 20}px`;
       const icon = el('i', { className: item.icon || '', ariaHidden: 'true' });
-      const title = el('span', { className: 'cbt-bulk-tree-title', textContent: item.title });
+      const title = el('span', { className: 'cbt-batch-tree-title', textContent: item.title });
 
       if (moving.has(id)) {
-        return [el('div', { className: 'cbt-bulk-tree-item cbt-bulk-tree-moving', style },
-          icon, title, el('span', { className: 'cbt-bulk-tree-tag', textContent: 'moving' }))];
+        return [el('div', { className: 'cbt-batch-tree-item cbt-batch-tree-moving', style },
+          icon, title, el('span', { className: 'cbt-batch-tree-tag', textContent: 'moving' }))];
       }
       const chosen = isChosen(groupId, where);
       const row = destination({
@@ -547,7 +547,7 @@
         label: `Move after ${item.title}`,
         chosen,
         onClick: () => choose(groupId, where),
-        className: 'cbt-bulk-tree-item' + (item.bold ? ' cbt-bulk-tree-subheader' : ''),
+        className: 'cbt-batch-tree-item' + (item.bold ? ' cbt-batch-tree-subheader' : ''),
         style,
       }, icon, title);
       return chosen ? [row, marker()] : [row];
@@ -558,24 +558,24 @@
       tree.replaceChildren(...groups.map(g => {
         const groupId = String(g.id);
         const open = expanded.has(groupId);
-        const toggle = el('button', { type: 'button', className: 'cbt-bulk-tree-toggle',
+        const toggle = el('button', { type: 'button', className: 'cbt-batch-tree-toggle',
           ariaExpanded: String(open), ariaLabel: `${open ? 'Collapse' : 'Expand'} ${g.name}` },
           el('i', { className: open ? 'icon-mini-arrow-down' : 'icon-mini-arrow-right', ariaHidden: 'true' }));
         toggle.dataset.key = `t${groupId}`;
         toggle.addEventListener('click', () => toggleGroup(groupId));
 
         const topChosen = isChosen(groupId, 'top');
-        return el('div', { className: 'cbt-bulk-tree-group' },
-          el('div', { className: 'cbt-bulk-tree-head' + (topChosen ? ' cbt-chosen' : '') }, toggle,
+        return el('div', { className: 'cbt-batch-tree-group' },
+          el('div', { className: 'cbt-batch-tree-head' + (topChosen ? ' cbt-chosen' : '') }, toggle,
             destination({
               key: `g${groupId}`,
               label: `Move to the top of ${g.name}`,
               chosen: topChosen,
               onClick: () => choose(groupId, 'top'),
-            }, el('span', { className: 'cbt-bulk-tree-title', textContent: g.name }))),
+            }, el('span', { className: 'cbt-batch-tree-title', textContent: g.name }))),
           topChosen ? marker() : '',
           ...(open ? g.items.flatMap(item => itemRows(g, item)) : []),
-          open && !g.items.length ? el('div', { className: 'cbt-bulk-tree-empty', textContent: `No ${noun}s yet` }) : '');
+          open && !g.items.length ? el('div', { className: 'cbt-batch-tree-empty', textContent: `No ${noun}s yet` }) : '');
       }));
       if (focusKey) tree.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus();
     }
@@ -585,7 +585,7 @@
       node: el('div', {},
         el('p', { className: 'cbt-hint', textContent: `Move ${count} ${noun}${plural(count)} to the top of ${/^[aeiou]/i.test(groupNoun) ? 'an' : 'a'} ${groupNoun}, or right after ${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}:` }),
         tree),
-      focus: tree.querySelector('.cbt-bulk-tree-dest'),
+      focus: tree.querySelector('.cbt-batch-tree-dest'),
       values: () => choice || {},
       onChange: fn => listeners.push(fn),
     };
@@ -593,7 +593,7 @@
 
   // ------------------------------------------------------------------
   // Rename: one text box per entry, saved one request at a time.
-  //   dialog    a modal() (usually the bulkEditor's)
+  //   dialog    a modal() (usually the batchEditor's)
   //   store     a sessionStore; after a save that changed anything, the result
   //             is written to it as { rename } and the page reloads
   // show({ title, noun, hint, empty?, entries, note? })
@@ -721,8 +721,8 @@
     }
 
     function putOutside(cb, container) {
-      cb.classList.add('cbt-bulk-outside');
-      container.classList.add('cbt-bulk-has-outside');
+      cb.classList.add('cbt-batch-outside');
+      container.classList.add('cbt-batch-has-outside');
       container.append(cb);
     }
 
@@ -750,10 +750,10 @@
       },
       reset() {
         outside = null;
-        document.querySelectorAll('.cbt-bulk-has-outside').forEach(n => n.classList.remove('cbt-bulk-has-outside'));
+        document.querySelectorAll('.cbt-batch-has-outside').forEach(n => n.classList.remove('cbt-batch-has-outside'));
       },
     };
   }
 
-  Object.assign(window.__canvasExpansionPack, { bulkEditor, moveTree, planList, renamer, checkPlacer });
+  Object.assign(window.__canvasExpansionPack, { batchEditor, moveTree, planList, renamer, checkPlacer });
 })();

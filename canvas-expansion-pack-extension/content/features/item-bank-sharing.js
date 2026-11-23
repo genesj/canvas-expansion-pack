@@ -1,19 +1,24 @@
 // Canvas Expansion Pack: Item Bank Sharing (see the notes at the top of core.js).
 //
-// The Item Banks page's "Bulk Item Bank Editor" panel: share banks with a
-// person or this course, review or remove shares, and move a New Quiz's
+// The Item Banks page's "Batch Edit ▾" menu and its panel: share banks with
+// a person or this course, review or remove shares, and move a New Quiz's
 // questions into a new bank of the same name.
 
 (() => {
   'use strict';
 
   const {
-    btn, canvas, chunk, courseId, el, job, launch, mapLimit, nativeFetch, newQuizzes, paced, plural, quizHosts,
-    sleep, addStyles, register,
+    btn, canvas, chunk, courseId, debug, el, job, launch, launchMenu, mapLimit, nativeFetch, newQuizzes, paced, plural,
+    sessionStore, toast,
+    quizHosts, sleep, addStyles, register,
   } = window.__canvasExpansionPack;
 
   addStyles(String.raw`
     /* ================= Item Bank Sharing ================= */
+    /* Docked, the button shares a flex row with the "Banks" heading and "+ Bank"
+       (space-between), so margin-left:auto keeps it beside "+ Bank" instead of
+       in the middle of the row. Outside a flex row the auto margin does nothing. */
+    #cbt-bank-toggle:not(.cbt-floating) { align-self: center; margin-left: auto; margin-right: 12px; }
     #cbt-bank-panel {
       position: fixed;
       right: 24px;
@@ -29,12 +34,46 @@
       border-radius: 6px;
       box-shadow: 0 6px 24px rgba(0, 0, 0, .2);
     }
-    #cbt-bank-panel h2 { font-size: 18px; margin: 0 0 4px; }
-    #cbt-bank-panel label { display: block; font-weight: 600; margin: 10px 0 4px; }
-    #cbt-bank-panel .cbt-bank-status { font-size: 13px; color: var(--cbt-muted); margin-bottom: 12px; }
-    #cbt-bank-panel .cbt-bank-row { display: flex; gap: 6px; }
+    /* Canvas's own stylesheet gives every text box a fixed 20px height and a
+       bottom margin, and every checkbox a top margin, which beat the .cbt
+       rules. Undo those inside the panel so boxes line up with their buttons. */
     #cbt-bank-panel input[type=text],
-    #cbt-bank-panel select { flex: 1; }
+    #cbt-bank-panel select { height: auto; margin: 0; line-height: inherit; }
+    #cbt-bank-panel input[type=checkbox] { margin: 0; }
+
+    #cbt-bank-panel .cbt-bank-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    #cbt-bank-panel h2 { flex: 1; min-width: 0; margin: 0; font-size: 18px; }
+    #cbt-bank-panel h3 { margin: 4px 0 6px; font-size: 15px; }
+    /* The log button beside the title: a plain text symbol with no emoji
+       form, so every browser draws it the same way. */
+    #cbt-bank-panel .cbt-bank-icon {
+      flex: none;
+      min-width: 24px;
+      padding: 0 4px;
+      font-size: 18px;
+      line-height: 24px;
+      text-align: center;
+    }
+    #cbt-bank-panel .cbt-bank-logtoggle {
+      background: none;
+      border: 0;
+      border-radius: 4px;
+      color: var(--cbt-muted);
+      font-family: inherit;
+      cursor: pointer;
+    }
+    #cbt-bank-panel .cbt-bank-logtoggle:hover,
+    #cbt-bank-panel .cbt-bank-logtoggle[aria-pressed="true"] { background: var(--cbt-hover); color: var(--cbt-text); }
+    #cbt-bank-panel .cbt-bank-status { font-size: 13px; color: var(--cbt-muted); margin-top: 4px; }
+    #cbt-bank-panel .cbt-bank-label { display: block; font-weight: 600; margin: 10px 0 4px; }
+    #cbt-bank-panel .cbt-bank-row { display: flex; gap: 6px; }
+    #cbt-bank-panel .cbt-bank-row + .cbt-bank-row { margin-top: 6px; }
+    #cbt-bank-panel .cbt-bank-row input[type=text],
+    #cbt-bank-panel .cbt-bank-row select { flex: 1; min-width: 0; }
+    #cbt-bank-panel .cbt-bank-listbar { display: flex; align-items: center; gap: 6px; }
+    #cbt-bank-panel .cbt-bank-listbar .cbt-hint { flex: 1; margin: 0; }
+    #cbt-bank-panel .cbt-bank-selall { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; cursor: pointer; }
+    #cbt-bank-panel .cbt-bank-count { margin-left: auto; font-size: 13px; color: var(--cbt-muted); white-space: nowrap; }
     #cbt-bank-panel .cbt-bank-checklist {
       max-height: 180px;
       overflow: auto;
@@ -49,8 +88,13 @@
       align-items: baseline;
       margin: 2px 0;
       font-weight: 400;
+      cursor: pointer;
     }
+    #cbt-bank-panel .cbt-bank-checklist input[type=checkbox] { flex: none; position: relative; top: 2px; }
     #cbt-bank-shares label { margin: 6px 0; }
+    #cbt-bank-panel .cbt-bank-message:empty { display: none; }
+    #cbt-bank-panel progress { width: 100%; margin-top: 8px; }
+    #cbt-bank-panel .cbt-list { max-height: 240px; }
     #cbt-bank-log {
       margin-top: 12px;
       padding: 8px;
@@ -61,9 +105,7 @@
       font-size: 12px;
       white-space: pre-wrap;
     }
-    #cbt-bank-log:empty { display: none; }
-    #cbt-bank-panel .cbt-bank-quiz-summary { margin-top: 8px; font-size: 13px; }
-    #cbt-bank-panel .cbt-bank-quiz-summary ul { margin: 4px 0 0 18px; padding: 0; }
+    #cbt-bank-log:empty::before { content: 'Nothing logged yet.'; color: var(--cbt-muted); }
   `);
 
   // ==================================================================
@@ -75,17 +117,17 @@
     const REMOVED = 'removed_access';
     const PAUSE_WRITE_MS = 300;
     const SCAN_CONCURRENCY = 4;
-    const MISSES_BEFORE_FLOAT = 5;
-    const FLOATING_RECHECK_TICKS = 5;
+    const FLOAT_AFTER_MS = 5000; // float the button if "+ Bank" hasn't appeared by then
     // People search only offers these roles, so a bank (and its answer key)
     // can't be shared with a student by picking the wrong name.
     const SHAREABLE_ROLES = ['teacher', 'ta', 'designer'];
 
+    // The Batch Edit ▾ menu's entries, in order.
     const MODES = {
-      person: { label: 'Share with a person', action: 'Share banks' },
-      course: { label: 'Share with this course', action: 'Share with course' },
-      review: { label: 'Review or remove current shares', action: 'Remove access', danger: true },
-      quiz: { label: 'Move a New Quiz’s questions into a new bank', action: 'Create bank and move' },
+      person: { label: 'Share with a person', hint: 'Give a teacher, TA, or designer access' },
+      course: { label: 'Share with this course', hint: 'Give this course’s teachers access' },
+      review: { label: 'Review or remove access', hint: 'See who has access and remove it', danger: true },
+      quiz: { label: 'Make a bank from a quiz', hint: 'Move a quiz’s questions into a new bank' },
     };
 
     // ---- Auth capture (runs at document-start) ----
@@ -258,87 +300,109 @@
     }
 
     // ---- UI ----
+    // A "Batch Edit ▾" menu next to "+ Bank" picks the task, and the panel in
+    // the bottom-right holds that task's controls. Each task goes from its
+    // form to a preview, then runs with a progress bar and Stop, ending in a
+    // one-line summary. The step-by-step log is hidden until "Show log" is
+    // pressed (it's also mirrored to the console when cbt-debug is on).
     const ui = {};
     let people = [];
     let banks = [];
     let groups = [];
     let quizzes = [];
     let quizPlan = null; // { quiz, moves, skipped } for the quiz picked in "Move a New Quiz"
-    let busy = false;
-    let anchorMisses = 0;
-    let floatingTicks = 0;
+    let mode = 'person';
+    let busy = false;    // a load or a job is running; controls are locked
+    let running = false; // a job (writes) is running; the task can't be switched
+    let banksFailed = false; // the automatic bank load failed; it's tried again next time a task is opened
+    let reloadAfterRun = false; // set by a job that needs the page reloaded when it ends
+    const store = sessionStore('cbt-banks'); // the summary carried across that reload
+    let stopRequested = false;
+    let placeTimer = null;
+    const startedAt = Date.now();
+
+    const NOT_CONNECTED = 'No item bank login yet. Click “Share” on any bank, close that dialog, then try again.';
+    const NO_BANK_COURSE = 'The bank course wasn’t detected. Reload the Item Banks page and try again.';
+
+    const nBanks = n => `${n} bank${plural(n)}`;
+    const nEntries = n => `${n} entr${n === 1 ? 'y' : 'ies'}`;
+    const fieldLabel = (text, htmlFor = '') => el(htmlFor ? 'label' : 'div', { className: 'cbt-bank-label', textContent: text, htmlFor });
+    const emptyNote = text => el('div', { textContent: text });
+    const row = (...children) => el('div', { className: 'cbt-bank-row' }, ...children);
+    // One checklist row: the whole row is a <label>, so a click anywhere on it toggles the box.
+    const checkRow = (input, ...content) => el('label', {}, input, el('span', { className: 'cbt-bank-text' }, ...content));
+    // [title, sub] pairs → the title-over-grey-line list the Batch Edit dialogs use.
+    const nameList = rows => el('ul', { className: 'cbt-list' }, ...rows.map(([title, sub]) => el('li', {},
+      el('span', { textContent: title }),
+      sub ? el('span', { className: 'cbt-sub', textContent: sub }) : '')));
+    const describeMoves = moves => {
+      const nStimuli = moves.filter(m => m.kind === 'Stimulus').length;
+      const nItems = moves.length - nStimuli;
+      return `${nItems} question${plural(nItems)}` + (nStimuli ? ` and ${nStimuli} stimul${nStimuli === 1 ? 'us' : 'i'}` : '');
+    };
 
     function buildUI() {
-      ui.launch = launch.create('cbt-bank-launch', 'Bulk Item Bank Editor', togglePanel);
+      ui.menu = launchMenu('cbt-bank-toggle', 'Batch Edit',
+        Object.entries(MODES).map(([key, m]) => ({ label: m.label, hint: m.hint, onSelect: () => openMode(key) })));
+      ui.launch = ui.menu.button;
       ui.launch.hidden = true;
 
+      ui.title = el('h2');
+      ui.logToggle = el('button', { type: 'button', className: 'cbt-bank-icon cbt-bank-logtoggle', textContent: 'ⓘ', title: 'Show log', ariaLabel: 'Show log' });
+      ui.logToggle.setAttribute('aria-pressed', 'false');
+      ui.logToggle.addEventListener('click', toggleLog);
       ui.status = el('div', { className: 'cbt-bank-status' });
-      ui.target = el('select', { id: 'cbt-bank-target' },
-        ...Object.entries(MODES).map(([value, m]) => el('option', { value, textContent: m.label })));
-      ui.courseHint = el('div', { className: 'cbt-hint', hidden: true,
-        textContent: 'Gives teachers in this course access. Banks already shared with this course are switched to the permission below. TAs still need to be added as people.' });
 
       ui.term = el('input', { type: 'text', id: 'cbt-bank-term', placeholder: 'Name or email' });
       ui.search = btn('Find', searchPeople);
-      ui.person = el('select', { id: 'cbt-bank-person' },
+      ui.person = el('select', { id: 'cbt-bank-person', ariaLabel: 'Person' },
         el('option', { textContent: 'Search for a teacher, TA, or designer in this course' }));
-      ui.personBox = el('div', {},
-        el('label', { htmlFor: 'cbt-bank-term', textContent: 'Person' }),
-        el('div', { className: 'cbt-bank-row' }, ui.term, ui.search),
-        el('div', { className: 'cbt-bank-row', style: 'margin-top:6px' }, ui.person));
+      ui.personBox = el('div', {}, fieldLabel('Person', 'cbt-bank-term'), row(ui.term, ui.search), row(ui.person));
 
       ui.perm = el('select', { id: 'cbt-bank-perm' },
         el('option', { value: 'edit', textContent: 'Can edit' }),
         el('option', { value: 'read', textContent: 'Can view' }));
-      ui.permBox = el('div', {}, el('label', { htmlFor: 'cbt-bank-perm', textContent: 'Permission' }), ui.perm);
+      ui.permBox = el('div', {}, fieldLabel('Permission', 'cbt-bank-perm'), ui.perm);
 
-      ui.loadBanks = btn('Load banks', loadBanks);
-      ui.toggleAll = btn('Select none', toggleAllBanks);
-      ui.banks = el('div', { className: 'cbt-bank-checklist', textContent: 'No banks loaded yet.' });
+      ui.selAll = el('input', { type: 'checkbox' });
+      ui.selAll.addEventListener('change', () => setAllBanks(ui.selAll.checked));
+      ui.count = el('span', { className: 'cbt-bank-count' });
+      ui.banks = el('div', { className: 'cbt-bank-checklist' }, emptyNote('Banks load once the panel is connected.'));
+      ui.banksBox = el('div', {}, fieldLabel('Banks'),
+        el('div', { className: 'cbt-bank-listbar' },
+          el('label', { className: 'cbt-bank-selall' }, ui.selAll, 'Select all'), ui.count),
+        ui.banks);
 
       ui.scan = btn('Scan shares', scanShares);
-      ui.shares = el('div', { id: 'cbt-bank-shares', className: 'cbt-bank-checklist',
-        textContent: 'Load banks, then scan to see who has access.' });
-      ui.reviewBox = el('div', { hidden: true },
-        el('label', { textContent: 'Who has access' }),
-        el('div', { className: 'cbt-bank-row' }, ui.scan),
-        el('div', { className: 'cbt-hint', textContent: 'Scans the checked banks. Removing someone only affects banks that are still checked.' }),
+      ui.shares = el('div', { id: 'cbt-bank-shares', className: 'cbt-bank-checklist' },
+        emptyNote('Scan to see who has access to the checked banks.'));
+      ui.reviewBox = el('div', {}, fieldLabel('Who has access'),
+        el('div', { className: 'cbt-bank-listbar' },
+          el('p', { className: 'cbt-hint', textContent: 'Scans the checked banks. Access is only removed from banks that are still checked.' }),
+          ui.scan),
         ui.shares);
 
       ui.loadQuizzes = btn('Load quizzes', loadQuizzes);
       ui.quiz = el('select', { id: 'cbt-bank-quiz' },
-        el('option', { value: '', textContent: 'Load the New Quizzes in this course first' }));
-      ui.quizSummary = el('div', { className: 'cbt-bank-quiz-summary' });
-      ui.quizBox = el('div', { hidden: true },
-        el('label', { htmlFor: 'cbt-bank-quiz', textContent: 'New Quiz' }),
-        el('div', { className: 'cbt-bank-row' }, ui.quiz, ui.loadQuizzes),
-        el('div', { className: 'cbt-hint', textContent:
-          'Makes a bank with the quiz\u2019s name and moves every question into it, like using ' +
-          '\u201cadd to item bank\u201d on each one in the quiz editor. The questions stay in the quiz, now linked to the bank.' }),
+        el('option', { value: '', textContent: 'Load the quizzes in this course first' }));
+      ui.quizSummary = el('p', { className: 'cbt-hint' });
+      ui.quizBox = el('div', {}, fieldLabel('Quiz', 'cbt-bank-quiz'), row(ui.quiz, ui.loadQuizzes),
+        el('p', { className: 'cbt-hint', textContent: 'Makes a bank named after the quiz and links every question in the quiz to it.' }),
         ui.quizSummary);
 
-      ui.share = btn(MODES.person.action, runAction, 'cbt-primary');
-      ui.log = el('div', { id: 'cbt-bank-log', role: 'log', ariaLive: 'polite' });
+      ui.message = el('p', { className: 'cbt-hint cbt-bank-message', role: 'status' });
+      ui.go = btn('', showPreview, 'cbt-primary');
+      ui.form = el('div', {},
+        ui.personBox, ui.permBox, ui.quizBox, ui.banksBox, ui.reviewBox, ui.message,
+        el('div', { className: 'cbt-actions' }, btn('Close', closePanel), ui.go));
+      ui.step = el('div', { hidden: true }); // the preview, then the progress and summary
+      ui.log = el('div', { id: 'cbt-bank-log', role: 'log', hidden: true });
 
       ui.panel = el('div', { id: 'cbt-bank-panel', className: 'cbt', hidden: true,
-        role: 'dialog', ariaLabel: 'Bulk Item Bank Editor' },
-        el('h2', { textContent: 'Bulk Item Bank Editor' }),
-        ui.status,
-        el('label', { htmlFor: 'cbt-bank-target', textContent: 'What do you want to do?' }),
-        ui.target,
-        ui.courseHint,
-        ui.personBox,
-        ui.permBox,
-        ui.quizBox,
-        ui.banksBox = el('div', {},
-          el('label', { textContent: 'Banks' }),
-          el('div', { className: 'cbt-bank-row' }, ui.loadBanks, ui.toggleAll),
-          ui.banks),
-        ui.reviewBox,
-        el('div', { className: 'cbt-actions' }, btn('Close', togglePanel), ui.share),
-        ui.log);
+        role: 'dialog', ariaLabel: 'Batch Edit item banks' },
+        el('div', { className: 'cbt-bank-head' }, ui.title, ui.logToggle),
+        ui.status, ui.form, ui.step, ui.log);
 
-      ui.target.addEventListener('change', onTargetChange);
       ui.term.addEventListener('keydown', e => { if (e.key === 'Enter') searchPeople(); });
       ui.person.addEventListener('change', syncControls);
       ui.banks.addEventListener('change', syncControls);
@@ -347,27 +411,112 @@
 
       document.body.append(ui.panel);
       onCapture = refreshStatus;
-      syncControls();
-      syncVisibility();
-      setInterval(syncVisibility, 1000);
+      showMode();
+      watchPlacement();
+
+      // After "Make a bank from a quiz", the page reloads so the new bank shows; say how it went.
+      const saved = store.take();
+      if (saved?.toast) toast(saved.toast, 20_000);
     }
+
+    // Loads the banks without being asked, the first time a task that needs them
+    // is open and the item bank login is known.
+    function autoLoadBanks() {
+      if (ui.panel.hidden || mode === 'quiz' || banks.length || busy || banksFailed) return;
+      if (!auth.api.Authorization || !bankCourseId()) return; // the status line says what's missing
+      loadBanks();
+    }
+
+    // ---- Opening, closing and switching tasks ----
+    function openMode(key) {
+      if (running) return; // the panel is showing a job; it can't be switched mid-run
+      mode = key;
+      ui.panel.hidden = false;
+      launch.setPressed(ui.launch, true);
+      showForm();
+      showMode();
+      banksFailed = false;
+      refreshStatus(); // also starts the bank load when it's needed
+      if (mode === 'quiz' && !quizzes.length && !busy) loadQuizzes();
+      ({ person: ui.term, course: ui.perm, review: ui.scan, quiz: ui.quiz })[mode]?.focus();
+    }
+
+    function closePanel() {
+      if (running) return;
+      ui.panel.hidden = true;
+      launch.setPressed(ui.launch, false);
+      showForm();
+    }
+
+    function showMode() {
+      const m = MODES[mode];
+      ui.title.textContent = m.label;
+      ui.personBox.hidden = mode !== 'person';
+      ui.permBox.hidden = mode === 'review' || mode === 'quiz';
+      ui.reviewBox.hidden = mode !== 'review';
+      ui.quizBox.hidden = mode !== 'quiz';
+      ui.banksBox.hidden = mode === 'quiz';
+      ui.go.classList.toggle('cbt-danger', !!m.danger);
+      setMessage('');
+      syncControls();
+    }
+
+    function showForm() {
+      ui.step.hidden = true;
+      ui.step.replaceChildren();
+      ui.form.hidden = false;
+      syncControls();
+    }
+
+    function showStep(...children) {
+      ui.form.hidden = true;
+      ui.step.replaceChildren(...children);
+      ui.step.hidden = false;
+    }
+
+    function toggleLog() {
+      const show = ui.log.hidden;
+      ui.log.hidden = !show;
+      ui.logToggle.title = ui.logToggle.ariaLabel = show ? 'Hide log' : 'Show log';
+      ui.logToggle.setAttribute('aria-pressed', String(show));
+      if (show) ui.log.scrollTop = ui.log.scrollHeight;
+    }
+
+    // ---- State of the controls ----
+    const bankBoxes = () => [...ui.banks.querySelectorAll('input[type=checkbox]')];
+    const checkedBanks = () => bankBoxes().filter(cb => cb.checked).map(cb => banks[Number(cb.value)]);
+    const checkedGroups = () => [...ui.shares.querySelectorAll('input:checked')].map(cb => groups[Number(cb.value)])
+      .filter(g => g && !g.isSelf);
+    const bankName = b => b.title || b.id;
 
     function syncControls() {
       if (!ui.panel) return;
-      const mode = ui.target.value;
-      ui.target.disabled = ui.search.disabled = ui.loadBanks.disabled = ui.perm.disabled = busy;
+      ui.term.disabled = ui.search.disabled = ui.perm.disabled = ui.loadQuizzes.disabled = busy;
       ui.person.disabled = busy || !people.length;
-      ui.toggleAll.disabled = ui.scan.disabled = busy || !banks.length;
-      ui.loadQuizzes.disabled = busy;
+      ui.scan.disabled = busy || !banks.length;
       ui.quiz.disabled = busy || !quizzes.length;
-      if (mode === 'quiz') {
-        ui.share.disabled = busy || !auth.api.Authorization || !quizPlan?.moves.length;
-        return;
-      }
-      let ready = !busy && !!auth.api.Authorization && !!ui.banks.querySelector('input:checked');
+
+      const boxes = bankBoxes();
+      const n = boxes.filter(b => b.checked).length;
+      boxes.forEach(b => { b.disabled = busy; });
+      ui.selAll.disabled = busy || !boxes.length;
+      ui.selAll.checked = boxes.length > 0 && n === boxes.length;
+      ui.selAll.indeterminate = n > 0 && n < boxes.length;
+      ui.count.textContent = boxes.length ? `${n} selected` : '';
+      ui.shares.querySelectorAll('input[type=checkbox]').forEach(b => { b.disabled = busy || !!groups[Number(b.value)]?.isSelf; });
+
+      ui.go.textContent = {
+        person: n ? `Share ${nBanks(n)}…` : 'Share…',
+        course: n ? `Share ${nBanks(n)} with this course…` : 'Share with this course…',
+        review: 'Remove access…',
+        quiz: 'Create bank and move…',
+      }[mode];
+      let ready = !busy && !!auth.api.Authorization;
+      if (mode === 'quiz') ready &&= !!quizPlan?.moves.length;
+      else ready &&= n > 0;
       if (mode === 'person') ready &&= people.length > 0;
-      if (mode === 'review') ready &&= !!ui.shares.querySelector('input:checked');
-      ui.share.disabled = !ready;
+      if (mode === 'review') ready &&= checkedGroups().length > 0;
+      ui.go.disabled = !ready;
     }
 
     function setBusy(value) {
@@ -375,79 +524,136 @@
       syncControls();
     }
 
-    const findBankButton = () => [...document.querySelectorAll('button, a')].find(b =>
-      b !== ui.launch && !ui.panel.contains(b) && b.textContent.replace(/[+\s]/g, '') === 'Bank');
-
-    // Scans the page only when the button isn't docked; while floating, only every few ticks.
-    function placeLaunch() {
-      const floating = ui.launch.classList.contains('cbt-floating');
-      if (ui.launch.isConnected && !floating) return;
-      if (floating && ++floatingTicks % FLOATING_RECHECK_TICKS) return;
-      const anchor = findBankButton();
-      if (anchor) {
-        anchorMisses = 0;
-        launch.dock(ui.launch, anchor);
-      } else if (++anchorMisses >= MISSES_BEFORE_FLOAT) {
-        launch.float(ui.launch);
-      }
-    }
-
-    function syncVisibility() {
-      const onPage = PAGE_RE.test(location.pathname);
-      if (onPage) placeLaunch();
-      ui.launch.hidden = !onPage || !ui.launch.isConnected;
-      if (!onPage) ui.panel.hidden = true;
-      launch.setPressed(ui.launch, !ui.panel.hidden);
-    }
-
-    function togglePanel() {
-      ui.panel.hidden = !ui.panel.hidden;
-      launch.setPressed(ui.launch, !ui.panel.hidden);
-      if (ui.panel.hidden) return;
-      refreshStatus();
-      (ui.target.value === 'person' ? ui.term : ui.target).focus();
-    }
-
-    function onTargetChange() {
-      const mode = ui.target.value;
-      ui.personBox.hidden = mode !== 'person';
-      ui.courseHint.hidden = mode !== 'course';
-      ui.permBox.hidden = mode === 'review' || mode === 'quiz';
-      ui.reviewBox.hidden = mode !== 'review';
-      ui.quizBox.hidden = mode !== 'quiz';
-      ui.banksBox.hidden = mode === 'quiz';
-      if (mode === 'quiz' && !quizzes.length && !busy) loadQuizzes();
-      ui.share.textContent = MODES[mode].action;
-      ui.share.classList.toggle('cbt-danger', !!MODES[mode].danger);
+    function setAllBanks(on) {
+      bankBoxes().forEach(b => { b.checked = on; });
       syncControls();
     }
 
-    function refreshStatus() {
-      if (!ui.panel || ui.panel.hidden) return;
-      const connected = !!auth.api.Authorization;
-      ui.status.replaceChildren(
-        connected
-          ? el('span', { className: 'cbt-ok', textContent: 'Connected to item banks. ' })
-          : el('span', { className: 'cbt-warn', textContent: 'Not connected yet: click "Share" on any bank, then close that dialog. ' }),
-        bankCourseId() ? '' : el('span', { className: 'cbt-warn', textContent: 'Bank course not detected yet. ' }),
-        connected && !auth.lti.Authorization
-          ? 'To show names when reviewing shares, open any bank\u2019s Share dialog once.' : '');
-      syncControls();
+    // A one-line note under the form (problems in orange). Also goes to the log.
+    function setMessage(text, warn = false) {
+      ui.message.textContent = text;
+      ui.message.classList.toggle('cbt-warn', warn);
+      if (text) log(text);
     }
 
     function log(message) {
+      debug('item banks:', message);
+      if (!ui.log) return;
       ui.log.textContent += message + '\n';
       ui.log.scrollTop = ui.log.scrollHeight;
     }
 
-    const checkedBanks = () => [...ui.banks.querySelectorAll('input:checked')].map(cb => banks[Number(cb.value)]);
-    const checkedGroups = () => [...ui.shares.querySelectorAll('input:checked')].map(cb => groups[Number(cb.value)]);
-    const bankName = b => b.title || b.id;
+    // Being connected is the normal state, so nothing shows for it. Anything
+    // that needs the user to act appears as a line of text under the title.
+    function refreshStatus() {
+      if (!ui.panel || ui.panel.hidden) return;
+      const connected = !!auth.api.Authorization;
+      const namesHint = connected && !auth.lti.Authorization
+        ? 'To show names when reviewing shares, open any bank’s Share dialog once.' : '';
+      ui.status.replaceChildren(
+        connected ? '' : el('span', { className: 'cbt-warn', textContent: 'Not connected yet: click “Share” on any bank, then close that dialog. ' }),
+        bankCourseId() ? '' : el('span', { className: 'cbt-warn', textContent: 'Bank course not detected yet. ' }),
+        mode === 'review' ? namesHint : '');
+      ui.status.hidden = !ui.status.textContent;
+      syncControls();
+      autoLoadBanks();
+    }
 
+    // ---- Placing the launch button ----
+    // Docks it just before "+ Bank". Canvas draws that toolbar after the page
+    // loads and can redraw it, so a MutationObserver puts the button back
+    // whenever it goes missing (and does nothing while it's in place). If
+    // "+ Bank" hasn't appeared after a few seconds, the button floats in the
+    // corner, and docks later if the toolbar turns up (checked at most once a second).
+    // Canvas's "+ Bank" is an icon button: the "+" is an SVG (which can carry
+    // its own <title>) and there may be screen-reader-only text beside the
+    // label, so the button's whole textContent isn't just "Bank". Instead, look
+    // for a text node that reads exactly "Bank" (or "+ Bank") inside a button,
+    // link or role=button, and dock next to that control.
+    const isBankLabel = text => /^\+?\s*bank$/i.test(text.trim());
+    const ours = n => n === ui.launch || ui.panel.contains(n) || !!n.closest('.cbt-menu, .cbt');
+    const BANK_BUTTON = '[data-automation="sdk-create-new-bank-button"]'; // New Quizzes' own "+ Bank"
+    function findBankButton() {
+      const exact = document.querySelector(BANK_BUTTON);
+      if (exact) return exact;
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: t => (isBankLabel(t.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+      });
+      for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+        const control = t.parentElement?.closest('button, a, [role="button"]');
+        if (control && !ours(control) && !t.parentElement.closest('svg')) return control;
+      }
+      // Fallback: a control whose accessible name is "Bank" / "Add bank" / "New bank" / "Create bank".
+      const named = [...document.querySelectorAll('button[aria-label], a[aria-label], [role="button"][aria-label]')]
+        .find(b => !ours(b) && /^(\+|add|new|create)?\s*(a\s+|new\s+)?bank$/i.test(b.getAttribute('aria-label').trim()));
+      if (!named) debug('item banks: no "+ Bank" button found yet; frames on the page:', document.querySelectorAll('iframe').length,
+        '; buttons on the page:',
+        [...document.querySelectorAll('button')].map(b => (b.getAttribute('aria-label') || b.textContent).trim()).filter(Boolean));
+      return named || null;
+    }
+
+    // Makes the docked button the same height and text size as "+ Bank". In
+    // InstUI the visible box is the button's inner content span, so measure that.
+    function matchSize(anchor) {
+      const box = anchor?.querySelector('[class*="baseButton__content"]') || anchor;
+      const height = box?.getBoundingClientRect().height;
+      if (!height) {
+        Object.assign(ui.launch.style, { boxSizing: '', height: '', minHeight: '', fontSize: '', position: '', top: '' });
+        return;
+      }
+      Object.assign(ui.launch.style, {
+        boxSizing: 'border-box',
+        height: `${height}px`,
+        minHeight: '0',
+        fontSize: getComputedStyle(anchor.querySelector('[class*="baseButton__children"]') || box).fontSize,
+        position: 'relative',
+        top: '0px',
+      });
+      // Line its top up with the visible "+ Bank" box. Centring in the row can
+      // leave it a few pixels off, because "+ Bank"'s outer <button> isn't the same box.
+      const shift = box.getBoundingClientRect().top - ui.launch.getBoundingClientRect().top;
+      if (Math.abs(shift) < 40) ui.launch.style.top = `${Math.round(shift * 2) / 2}px`;
+    }
+
+    function queuePlace(delay = 0) {
+      if (placeTimer) return;
+      placeTimer = setTimeout(() => { placeTimer = null; placeLaunch(); }, delay);
+    }
+
+    function placeLaunch() {
+      if (!PAGE_RE.test(location.pathname)) {
+        ui.launch.hidden = true;
+        closePanel();
+        return;
+      }
+      const anchor = findBankButton();
+      if (anchor) {
+        launch.dock(ui.launch, anchor);
+        matchSize(anchor);
+        setTimeout(() => { if (anchor.isConnected) matchSize(anchor); }, 1000); // again once fonts have settled
+      } else if (Date.now() - startedAt >= FLOAT_AFTER_MS) {
+        launch.float(ui.launch);
+        matchSize(null);
+      }
+      else queuePlace(500);
+      ui.launch.hidden = !ui.launch.isConnected;
+    }
+
+    function watchPlacement() {
+      placeLaunch();
+      new MutationObserver(() => {
+        if (!PAGE_RE.test(location.pathname)) { if (!ui.launch.hidden) queuePlace(); return; }
+        if (!ui.launch.isConnected) queuePlace();
+        else if (ui.launch.classList.contains('cbt-floating')) queuePlace(1000);
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+
+    // ---- Loading people, banks and shares ----
     async function searchPeople() {
       if (busy) return;
       const term = ui.term.value.trim();
-      if (term.length < 2) return log('Type at least 2 characters to search.');
+      if (term.length < 2) return setMessage('Type at least 2 characters to search.', true);
+      setMessage('');
       setBusy(true);
       try {
         const roles = SHAREABLE_ROLES.map(r => `&enrollment_type[]=${r}`).join('');
@@ -457,9 +663,10 @@
         ui.person.replaceChildren(...(people.length
           ? people.map((u, i) => el('option', { value: i, textContent: `${u.name} (${u.email || u.login_id || 'no email'})` }))
           : [el('option', { textContent: 'No match. Only teachers, TAs, and designers in this course can be added.' })]));
-        log(people.length ? `Found ${people.length} match(es) for "${term}".` : `No teacher, TA, or designer matched "${term}".`);
+        log(people.length ? `Found ${people.length} match${people.length === 1 ? '' : 'es'} for “${term}”.`
+          : `No teacher, TA, or designer matched “${term}”.`);
       } catch (e) {
-        log('Search failed: ' + e.message);
+        setMessage(`Search failed: ${e.message}.`, true);
       } finally {
         setBusy(false);
       }
@@ -470,7 +677,7 @@
       const seen = new Set();
       for (let page = 1; page <= 50; page++) {
         const r = await quizFetch('api', `/banks?page=${page}&course_id=${encodeURIComponent(bankCourse)}`);
-        if (!r.ok) throw new Error(`bank list returned ${r.status}${r.status === 401 ? ' (token expired, reload the page)' : ''}`);
+        if (!r.ok) throw new Error(`bank list returned ${r.status}${r.status === 401 ? ' (login expired, reload the page)' : ''}`);
         const data = await r.json();
         const list = Array.isArray(data) ? data : (data.banks || data.data || []);
         // Stop when a page brings nothing new, so a server that ignores `page`
@@ -487,119 +694,39 @@
 
     async function loadBanks() {
       const bankCourse = bankCourseId();
-      if (!auth.api.Authorization) return log('No token yet. Click "Share" on any bank, close it, then try again.');
-      if (!bankCourse) return log('Bank course not detected. Reload the Item Banks page and try again.');
+      if (!auth.api.Authorization) return setMessage(NOT_CONNECTED, true);
+      if (!bankCourse) return setMessage(NO_BANK_COURSE, true);
+      setMessage('');
       setBusy(true);
       banks = [];
       groups = [];
       // Clear the old checkboxes first, so a failed load can't leave them pointing at the wrong banks.
-      ui.banks.replaceChildren('Loading banks…');
-      ui.shares.replaceChildren('Load banks, then scan to see who has access.');
+      ui.banks.replaceChildren(emptyNote('Loading banks…'));
+      ui.shares.replaceChildren(emptyNote('Scan to see who has access to the checked banks.'));
       try {
         banks = await fetchBanks(bankCourse);
         ui.banks.replaceChildren(...(banks.length
-          ? banks.map((b, i) => el('label', {}, el('input', { type: 'checkbox', checked: true, value: i }), b.title || `Bank ${b.id}`))
-          : ['No banks found in this course.']));
-        ui.toggleAll.textContent = 'Select none';
-        log(`Loaded ${banks.length} bank(s).`);
+          ? banks.map((b, i) => checkRow(el('input', { type: 'checkbox', checked: true, value: i }), b.title || `Bank ${b.id}`))
+          : [emptyNote('No banks found in this course.')]));
+        log(`Loaded ${nBanks(banks.length)}.`);
       } catch (e) {
         banks = [];
-        ui.banks.replaceChildren('Banks couldn’t be loaded. Try Load banks again.');
-        log('Could not load banks: ' + e.message);
+        banksFailed = true;
+        ui.banks.replaceChildren(emptyNote('Banks couldn’t be loaded. Pick the task from Batch Edit again to retry.'));
+        setMessage(`Couldn’t load banks: ${e.message}.`, true);
       } finally {
         setBusy(false);
       }
-    }
-
-    function toggleAllBanks() {
-      const boxes = [...ui.banks.querySelectorAll('input[type=checkbox]')];
-      const anyChecked = boxes.some(b => b.checked);
-      boxes.forEach(b => { b.checked = !anyChecked; });
-      ui.toggleAll.textContent = anyChecked ? 'Select all' : 'Select none';
-      syncControls();
-    }
-
-    function runAction() {
-      const mode = ui.target.value;
-      if (mode === 'quiz') return moveQuizToBank();
-      return mode === 'review' ? removeShares() : shareBanks(mode);
-    }
-
-    async function shareBanks(mode) {
-      const selected = checkedBanks();
-      if (!selected.length) return;
-      const permission = ui.perm.value;
-      setBusy(true);
-      job.start();
-      try {
-        if (mode === 'course') await shareWithCourse(selected, permission);
-        else await shareWithPerson(selected, permission);
-      } catch (e) {
-        log('Sharing stopped: ' + e.message);
-      } finally {
-        job.end();
-        setBusy(false);
-      }
-    }
-
-    async function applyShares(selected, entityType, matchIds, postId, permission) {
-      const label = PERM_LABEL[permission];
-      const counts = { added: 0, changed: 0, unchanged: 0, failed: 0 };
-      for (const [i, b] of selected.entries()) {
-        const name = bankName(b);
-        let wrote = true;
-        try {
-          const { result, status } = await shareApi.upsert(b, entityType, matchIds, postId, permission);
-          counts[result]++;
-          wrote = result !== 'unchanged';
-          log({
-            added: `✅ ${name} (shared, ${label})`,
-            changed: `🔁 ${name} (changed to ${label})`,
-            unchanged: `➖ ${name} (already ${label})`,
-            failed: `❌ ${name} (${status})`,
-          }[result]);
-        } catch (e) {
-          counts.failed++;
-          log(`❌ ${name} (${e.message})`);
-        }
-        // Pause only after a write, and not after the last bank.
-        if (wrote && i < selected.length - 1) await sleep(PAUSE_WRITE_MS);
-      }
-      log(`Done: ${counts.added} shared, ${counts.changed} changed, ${counts.unchanged} already set` +
-          (counts.failed ? `, ${counts.failed} failed.` : '.'));
-    }
-
-    async function shareWithPerson(selected, permission) {
-      const u = people[Number(ui.person.value)];
-      if (!u) return;
-      const label = PERM_LABEL[permission];
-      if (!confirm(`Share ${selected.length} bank(s) with ${u.name} (${label})?\n\n` +
-                   `Banks already shared with ${u.name} will be switched to ${label}.`)) return;
-      const user = { uuid: u.uuid, full_name: u.name, email: u.email, avatar_image_url: u.avatar_url };
-      const reg = await quizFetch('lti', '/users', { method: 'POST', body: user });
-      log(reg.ok
-        ? `Registered ${u.name} with item banks.`
-        : `⚠️ Couldn't register ${u.name} with item banks (${reg.status}). Trying to share anyway.`);
-      await applyShares(selected, 'user', [user.uuid], user.uuid, permission);
-    }
-
-    async function shareWithCourse(selected, permission) {
-      const bankCourse = bankCourseId();
-      if (!bankCourse) throw new Error('bank course not detected; reload the Item Banks page');
-      const course = await courseInfo();
-      if (!course.uuid) throw new Error("couldn't look up this course in Canvas");
-      const label = PERM_LABEL[permission];
-      if (!confirm(`Share ${selected.length} bank(s) with the course "${course.name}" (${label})?\n\n` +
-                   `Banks already shared with this course will be switched to ${label}.`)) return;
-      await applyShares(selected, 'course', [bankCourse, course.uuid], course.uuid, permission);
     }
 
     async function scanShares() {
       const selected = checkedBanks();
-      if (!selected.length) return log('Check at least one bank to scan.');
+      if (!selected.length) return setMessage('Check at least one bank to scan.', true);
+      setMessage('');
       setBusy(true);
       groups = [];
-      ui.shares.replaceChildren('Scanning…');
+      ui.shares.replaceChildren(emptyNote('Scanning…'));
+      let failedScans = 0;
       try {
         const bankCourse = bankCourseId();
         const [self, thisCourse] = await Promise.all([whoAmI(), courseInfo().catch(() => ({}))]);
@@ -612,10 +739,11 @@
           try {
             return await shareApi.list(b.id);
           } catch (e) {
-            log(`❌ Couldn't scan ${bankName(b)} (${e.message})`);
+            failedScans++;
+            log(`Couldn’t scan ${bankName(b)} (${e.message})`);
             return [];
           } finally {
-            if (++done % 10 === 0) ui.shares.replaceChildren(`Scanning… ${done} of ${selected.length} banks`);
+            if (++done % 10 === 0) ui.shares.replaceChildren(emptyNote(`Scanning… ${done} of ${selected.length} banks`));
           }
         });
 
@@ -633,7 +761,7 @@
         });
         groups = [...byEntity.values()];
 
-        ui.shares.replaceChildren('Looking up names…');
+        ui.shares.replaceChildren(emptyNote('Looking up names…'));
         const idsOf = type => groups.filter(g => g.type === type).map(g => g.id);
         const [users, courses] = await Promise.all([
           lookupNames('users', idsOf('user')),
@@ -656,11 +784,12 @@
         }
         groups.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'course' ? -1 : 1));
 
-        ui.shares.replaceChildren(...(groups.length ? groups.map(renderGroup) : ['No one else has access to the checked banks.']));
-        log(`Scanned ${selected.length} bank(s): ${groups.length} person/course share(s) found.`);
+        ui.shares.replaceChildren(...(groups.length ? groups.map(renderGroup) : [emptyNote('No one else has access to the checked banks.')]));
+        log(`Scanned ${nBanks(selected.length)}: ${groups.length} ${groups.length === 1 ? 'person or course has' : 'people or courses have'} access.`);
+        if (failedScans) setMessage(`Couldn’t scan ${nBanks(failedScans)}. Show the log for details.`, true);
       } catch (e) {
-        ui.shares.replaceChildren('Scan failed.');
-        log('Scan failed: ' + e.message);
+        ui.shares.replaceChildren(emptyNote('Scan failed.'));
+        setMessage(`Scan failed: ${e.message}.`, true);
       } finally {
         setBusy(false);
       }
@@ -670,44 +799,237 @@
       const n = g.shares.length;
       const perms = [...new Set(g.shares.map(s => PERM_LABEL[s.permission] || s.permission))].join(' / ');
       const kind = g.type === 'course' ? 'Course' : 'Person';
-      return el('label', { title: g.shares.map(s => s.bankTitle).join('\n') },
-        el('input', { type: 'checkbox', value: i, disabled: g.isSelf }),
-        el('span', {},
-          el('strong', { textContent: g.name + (g.isSelf ? ' (you)' : '') }),
-          el('span', { className: 'cbt-sub', textContent:
-            `${kind}, ${n} bank${plural(n)}, ${perms}${g.isSelf ? '. Your own access can’t be removed here.' : ''}` })));
+      const label = checkRow(el('input', { type: 'checkbox', value: i, disabled: g.isSelf }),
+        el('strong', { textContent: g.name + (g.isSelf ? ' (you)' : '') }),
+        el('span', { className: 'cbt-sub', textContent:
+          `${kind}, ${nBanks(n)}, ${perms}${g.isSelf ? '. Your own access can’t be removed here.' : ''}` }));
+      label.title = g.shares.map(s => s.bankTitle).join('\n');
+      if (g.isSelf) label.classList.add('cbt-bank-self');
+      return label;
     }
 
-    async function removeShares() {
-      const keep = new Set(checkedBanks().map(b => String(b.id)));
-      const chosen = checkedGroups().filter(g => !g.isSelf);
-      const jobs = chosen.flatMap(g => g.shares.filter(s => keep.has(s.bankId)).map(s => ({ g, s })));
-      if (!jobs.length) return log('Nothing to remove: none of the chosen shares are on checked banks.');
+    // ---- Preview, then run ----
+    function showPreview() {
+      setMessage('');
+      if (!auth.api.Authorization) return setMessage(NOT_CONNECTED, true);
+      return ({ person: previewPerson, course: previewCourse, review: previewRemove, quiz: previewQuiz })[mode]();
+    }
 
-      const perGroup = new Map();
-      jobs.forEach(({ g }) => perGroup.set(g, (perGroup.get(g) || 0) + 1));
-      const summary = [...perGroup].map(([g, n]) => `• ${g.name}: ${n} bank${plural(n)}`).join('\n');
-      if (!confirm(`Remove access?\n\n${summary}\n\nThis can be undone by sharing again.`)) return;
+    // Shows what will happen, with Back and the button that does it.
+    function preview({ heading, hint, warn, list = [], button, danger, working, run }) {
+      const go = btn(button, () => runJob(working, run), 'cbt-primary' + (danger ? ' cbt-danger' : ''));
+      showStep(
+        el('h3', { textContent: heading }),
+        hint ? el('p', { className: 'cbt-hint', textContent: hint }) : '',
+        warn ? el('p', { className: 'cbt-hint cbt-warn', textContent: warn }) : '',
+        ...list,
+        el('div', { className: 'cbt-actions' }, btn('Back', showForm), go));
+      go.focus();
+    }
 
+    // Runs a job with a progress bar and Stop. run(ctx) returns the summary line.
+    //   ctx.step(text)          what's happening now (progress bar goes indeterminate)
+    //   ctx.progress(done, of)  "N of M done"
+    //   ctx.note(text, warn)    a line kept under the progress bar
+    //   ctx.stopped             true once Stop was pressed
+    async function runJob(working, run) {
+      stopRequested = false;
+      running = true;
       setBusy(true);
+      const heading = el('h3', { textContent: working });
+      const bar = el('progress');
+      const status = el('p', { className: 'cbt-hint', role: 'status' });
+      const notes = el('div');
+      const stop = btn('Stop', () => {
+        stopRequested = true;
+        stop.disabled = true;
+        stop.textContent = 'Stopping…';
+      });
+      const actions = el('div', { className: 'cbt-actions' }, stop);
+      showStep(heading, bar, status, notes, actions);
+      stop.focus();
+      log(working);
+
+      const noteTexts = [];
+      reloadAfterRun = false;
+      const ctx = {
+        step(text) { bar.removeAttribute('value'); status.textContent = text; log(text); },
+        progress(done, total) { bar.max = Math.max(total, 1); bar.value = done; status.textContent = `${done} of ${total} done`; },
+        note(text, warn = false) {
+          notes.append(el('p', { className: 'cbt-hint' + (warn ? ' cbt-warn' : ''), textContent: text }));
+          log(text);
+          noteTexts.push(text);
+        },
+        get stopped() { return stopRequested; },
+      };
+
+      let summary;
       job.start();
-      let ok = 0, failed = 0;
       try {
-        await paced(jobs, PAUSE_WRITE_MS, async ({ g, s }) => {
+        summary = await run(ctx);
+      } catch (e) {
+        summary = `Stopped: ${e.message}.`;
+      } finally {
+        job.end();
+        running = false;
+        setBusy(false);
+      }
+      log(summary);
+      // Reload so Canvas's own list shows the change; the summary comes back as a toast.
+      if (reloadAfterRun && store.write({ toast: [summary, ...noteTexts].join(' ') })) {
+        heading.textContent = `${summary} Reloading…`;
+        location.reload();
+        return;
+      }
+      heading.textContent = summary;
+      if (!bar.hasAttribute('value')) { bar.max = 1; bar.value = 1; }
+      status.textContent = '';
+      const ok = btn('OK', showForm, 'cbt-primary');
+      actions.replaceChildren(ok);
+      ok.focus();
+    }
+
+    const sharePreviewList = selected => [nameList(selected.map(b => [bankName(b)]))];
+
+    function previewPerson() {
+      const selected = checkedBanks();
+      const u = people[Number(ui.person.value)];
+      if (!selected.length || !u) return;
+      const permission = ui.perm.value;
+      const label = PERM_LABEL[permission];
+      preview({
+        heading: `Share ${nBanks(selected.length)} with ${u.name}`,
+        hint: `${u.name} gets “${label}” access. Banks already shared with them are switched to “${label}”.`,
+        list: sharePreviewList(selected),
+        button: `Share ${nBanks(selected.length)}`,
+        working: `Sharing ${nBanks(selected.length)} with ${u.name}…`,
+        run: ctx => shareWithPerson(ctx, selected, u, permission),
+      });
+    }
+
+    async function previewCourse() {
+      const selected = checkedBanks();
+      if (!selected.length) return;
+      const bankCourse = bankCourseId();
+      if (!bankCourse) return setMessage(NO_BANK_COURSE, true);
+      let course;
+      setBusy(true);
+      try {
+        course = await courseInfo();
+      } catch (e) {
+        return setMessage(`Couldn’t look up this course in Canvas: ${e.message}.`, true);
+      } finally {
+        setBusy(false);
+      }
+      if (!course?.uuid) return setMessage('Couldn’t look up this course in Canvas.', true);
+      const permission = ui.perm.value;
+      const label = PERM_LABEL[permission];
+      preview({
+        heading: `Share ${nBanks(selected.length)} with this course`,
+        hint: `Teachers in ${course.name} get “${label}” access. Banks already shared with this course are switched to “${label}”.`,
+        list: sharePreviewList(selected),
+        button: `Share ${nBanks(selected.length)}`,
+        working: `Sharing ${nBanks(selected.length)} with this course…`,
+        run: ctx => applyShares(ctx, selected, 'course', [bankCourse, course.uuid], course.uuid, permission),
+      });
+    }
+
+    async function shareWithPerson(ctx, selected, u, permission) {
+      const user = { uuid: u.uuid, full_name: u.name, email: u.email, avatar_image_url: u.avatar_url };
+      ctx.step(`Registering ${u.name} with item banks…`);
+      const reg = await quizFetch('lti', '/users', { method: 'POST', body: user });
+      if (!reg.ok) ctx.note(`Couldn’t register ${u.name} with item banks (${reg.status}). Shared anyway.`, true);
+      return applyShares(ctx, selected, 'user', [user.uuid], user.uuid, permission);
+    }
+
+    async function applyShares(ctx, selected, entityType, matchIds, postId, permission) {
+      const label = PERM_LABEL[permission];
+      const counts = { added: 0, changed: 0, unchanged: 0, failed: 0 };
+      let done = 0;
+      ctx.progress(0, selected.length);
+      for (const [i, b] of selected.entries()) {
+        if (ctx.stopped) break;
+        const name = bankName(b);
+        let wrote = true;
+        try {
+          const { result, status } = await shareApi.upsert(b, entityType, matchIds, postId, permission);
+          counts[result]++;
+          wrote = result !== 'unchanged';
+          log({
+            added: `Shared: ${name} (${label})`,
+            changed: `Changed: ${name} (now ${label})`,
+            unchanged: `Already set: ${name} (${label})`,
+            failed: `Failed: ${name} (${status})`,
+          }[result]);
+        } catch (e) {
+          counts.failed++;
+          log(`Failed: ${name} (${e.message})`);
+        }
+        ctx.progress(++done, selected.length);
+        // Pause only after a write, and not after the last bank.
+        if (wrote && i < selected.length - 1) await sleep(PAUSE_WRITE_MS);
+      }
+      const parts = [`${counts.added} shared`];
+      if (counts.changed) parts.push(`${counts.changed} changed`);
+      if (counts.unchanged) parts.push(`${counts.unchanged} already set`);
+      if (counts.failed) parts.push(`${counts.failed} failed`);
+      if (done < selected.length) parts.push(`${selected.length - done} not attempted`);
+      return `${ctx.stopped ? 'Stopped' : 'Done'}: ${parts.join(', ')}.`;
+    }
+
+    function previewRemove() {
+      const keep = new Set(checkedBanks().map(b => String(b.id)));
+      const chosen = checkedGroups();
+      const jobs = chosen.flatMap(g => g.shares.filter(s => keep.has(s.bankId)).map(s => ({ g, s })));
+      if (!jobs.length) return setMessage('Nothing to remove: none of the chosen people or courses have access to a checked bank.', true);
+
+      const touched = [...new Set(jobs.map(j => j.g))];
+      const nPeople = touched.filter(g => g.type !== 'course').length;
+      const nCourses = touched.length - nPeople;
+      const who = [
+        nPeople ? `${nPeople} ${nPeople === 1 ? 'person' : 'people'}` : '',
+        nCourses ? `${nCourses} course${plural(nCourses)}` : '',
+      ].filter(Boolean).join(' and ');
+      preview({
+        heading: `Remove access for ${who}`,
+        hint: 'This can be undone by sharing again.',
+        list: [nameList(touched.map(g => {
+          const titles = jobs.filter(j => j.g === g).map(j => j.s.bankTitle);
+          return [g.name, `${nBanks(titles.length)}: ${titles.join(' · ')}`];
+        }))],
+        button: `Remove ${jobs.length} share${plural(jobs.length)}`,
+        danger: true,
+        working: 'Removing access…',
+        run: ctx => removeShares(ctx, jobs),
+      });
+    }
+
+    async function removeShares(ctx, jobs) {
+      let ok = 0, failed = 0, done = 0;
+      ctx.progress(0, jobs.length);
+      await paced(jobs, PAUSE_WRITE_MS, async ({ g, s }) => {
+        if (ctx.stopped) return false;
+        try {
           const r = await shareApi.update(s.bankId, s.id, REMOVED);
           if (r.ok) ok++;
           else failed++;
-          log(`${r.ok ? '🗑️' : '❌'} ${g.name} removed from ${s.bankTitle}${r.ok ? '' : ` (${r.status})`}`);
-        });
-        log(`Done: ${ok} removed${failed ? `, ${failed} failed` : ''}. Rescanning to confirm…`);
-      } catch (e) {
-        log('Removal stopped: ' + e.message);
-      } finally {
-        job.end();
-        setBusy(false);
-      }
+          log(r.ok ? `Removed: ${g.name} from ${s.bankTitle}` : `Failed: ${g.name} from ${s.bankTitle} (${r.status})`);
+        } catch (e) {
+          failed++;
+          log(`Failed: ${g.name} from ${s.bankTitle} (${e.message})`);
+        }
+        ctx.progress(++done, jobs.length);
+        return true;
+      });
+      const parts = [`${ok} removed`];
+      if (failed) parts.push(`${failed} failed`);
+      if (done < jobs.length) parts.push(`${jobs.length - done} not attempted`);
+      const summary = `${ctx.stopped ? 'Stopped' : 'Done'}: ${parts.join(', ')}.`;
       // Rescan instead of trusting the responses: revoking access is worth verifying.
+      ctx.step('Rescanning to confirm…');
       await scanShares();
+      ctx.note('The “Who has access” list has been rescanned.');
+      return summary;
     }
 
     // ---- Move a New Quiz's questions into a new bank ----
@@ -764,18 +1086,18 @@
       quizzes = [];
       quizPlan = null;
       ui.quizSummary.replaceChildren();
-      ui.quiz.replaceChildren(el('option', { value: '', textContent: 'Loading New Quizzes…' }));
+      ui.quiz.replaceChildren(el('option', { value: '', textContent: 'Loading quizzes…' }));
       try {
         const list = await canvas.getAll(`/api/quiz/v1/courses/${courseId()}/quizzes`);
         quizzes = (Array.isArray(list) ? list : []).filter(q => q?.id)
           .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
         ui.quiz.replaceChildren(
-          el('option', { value: '', textContent: quizzes.length ? 'Choose a quiz' : 'No New Quizzes in this course' }),
+          el('option', { value: '', textContent: quizzes.length ? 'Choose a quiz' : 'No quizzes in this course' }),
           ...quizzes.map((q, i) => el('option', { value: String(i), textContent: q.title || `Quiz ${q.id}` })));
-        log(`Found ${quizzes.length} New Quiz${quizzes.length === 1 ? '' : 'zes'} in this course.`);
+        log(`Found ${quizzes.length} quiz${quizzes.length === 1 ? '' : 'zes'} in this course.`);
       } catch (e) {
         ui.quiz.replaceChildren(el('option', { value: '', textContent: 'Couldn’t load quizzes. Try Load quizzes again.' }));
-        log('Could not load New Quizzes: ' + e.message);
+        setMessage(`Couldn’t load quizzes: ${e.message}.`, true);
       } finally {
         setBusy(false);
       }
@@ -784,6 +1106,7 @@
     async function readQuiz() {
       quizPlan = null;
       ui.quizSummary.replaceChildren();
+      setMessage('');
       const quiz = ui.quiz.value === '' ? null : quizzes[Number(ui.quiz.value)];
       if (!quiz) return syncControls();
       setBusy(true);
@@ -794,25 +1117,18 @@
         renderQuizSummary(quizPlan);
       } catch (e) {
         ui.quizSummary.textContent = 'Couldn’t read this quiz.';
-        log(`Could not read "${quiz.title}": ${e.message}`);
+        setMessage(`Couldn’t read “${quiz.title}”: ${e.message}.`, true);
       } finally {
         setBusy(false);
       }
     }
 
     function renderQuizSummary({ moves, skipped }) {
-      const nStimuli = moves.filter(m => m.kind === 'Stimulus').length;
-      const nItems = moves.length - nStimuli;
-      const parts = [
-        el('div', { textContent: moves.length
-          ? `Will move ${nItems} question${plural(nItems)}` +
-            (nStimuli ? ` and ${nStimuli} stimul${nStimuli === 1 ? 'us' : 'i'}` : '') + ' into the new bank.'
-          : 'Every question in this quiz already comes from a bank.' }),
-      ];
-      if (skipped.length) parts.push(
-        el('div', { className: 'cbt-warn', textContent: `Left as they are (${skipped.length}):` }),
-        el('ul', {}, ...skipped.map(s => el('li', { textContent: `${s.name}: ${s.reason}` }))));
-      ui.quizSummary.replaceChildren(...parts);
+      const k = skipped.length;
+      ui.quizSummary.textContent = moves.length
+        ? `Will move ${describeMoves(moves)} into the new bank.` +
+          (k ? ` ${nEntries(k)} already ${k === 1 ? 'comes' : 'come'} from a bank and will be left as ${k === 1 ? 'it is' : 'they are'}.` : '')
+        : 'Every question in this quiz already comes from a bank.';
     }
 
     async function postToBanks(path, body, what) {
@@ -827,7 +1143,7 @@
       return detail ? `: ${detail}` : '';
     }
 
-    async function createBank(title, bankCourse) {
+    async function createBank(title, bankCourse, ctx) {
       const res = await postToBanks('/banks', { bank: { title, language: 'en' } }, 'Creating the bank');
       const id = res?.bank?.id ?? res?.id;
       if (id == null) throw new Error("the item bank service didn't say which bank it created");
@@ -838,7 +1154,7 @@
           shared_bank: { entity_id: bankCourse, entityType: 'course', bank_id: String(id), permission: 'read' },
         }, 'Adding the bank to this course');
       } catch (e) {
-        log(`⚠️ ${e.message}. The bank was made but may only show under your own banks.`);
+        ctx.note(`${e.message}. The bank was made but may only show under your own banks.`, true);
       }
       return String(id);
     }
@@ -857,12 +1173,11 @@
       return total;
     }
 
-    async function moveQuizToBank() {
+    async function previewQuiz() {
       const plan = quizPlan;
       if (busy || !plan?.moves.length) return;
       const bankCourse = bankCourseId();
-      if (!auth.api.Authorization) return log('No token yet. Click "Share" on any bank, close it, then try again.');
-      if (!bankCourse) return log('Bank course not detected. Reload the Item Banks page and try again.');
+      if (!bankCourse) return setMessage(NO_BANK_COURSE, true);
       const title = String(plan.quiz.title || `Quiz ${plan.quiz.id}`).trim();
 
       setBusy(true);
@@ -872,66 +1187,79 @@
       } catch { /* the warning below just won't show */ }
       setBusy(false);
 
-      const n = plan.moves.length;
-      const ok = confirm(`Make a new item bank "${title}" and move ${n} entr${n === 1 ? 'y' : 'ies'} from the quiz into it?\n\n` +
-        'Each question stays in the quiz but now comes from the bank, the same as using "add to item bank" ' +
-        'on it in the quiz editor. Editing it in the bank will change it in the quiz.' +
-        (plan.skipped.length ? `\n\n${plan.skipped.length} entr${plan.skipped.length === 1 ? 'y already comes' : 'ies already come'} from a bank and will be left as ${plan.skipped.length === 1 ? 'it is' : 'they are'}.` : '') +
-        (existing.length ? `\n\nThis course already has a bank named "${title}". A second bank with the same name will be made.` : ''));
-      if (!ok) return;
+      const k = plan.skipped.length;
+      preview({
+        heading: `Move ${describeMoves(plan.moves)} into a new bank`,
+        hint: `Makes a bank named “${title}” and moves each question into it, the same as using “add to item bank” ` +
+          'on it in the quiz editor. Each question stays in the quiz but now comes from the bank, so editing it in the bank changes it in the quiz.',
+        warn: existing.length ? `This course already has a bank named “${title}”. A second bank with the same name will be made.` : '',
+        list: k ? [fieldLabel(`Left as they are (${k})`), nameList(plan.skipped.map(s => [s.name, s.reason]))] : [],
+        button: `Create bank and move ${describeMoves(plan.moves)}`,
+        working: `Moving into “${title}”…`,
+        run: ctx => moveQuizToBank(ctx, plan, title, bankCourse),
+      });
+    }
 
-      setBusy(true);
-      job.start();
-      let moved = 0, failed = 0;
+    async function moveQuizToBank(ctx, plan, title, bankCourse) {
+      const n = plan.moves.length;
+      let moved = 0, failed = 0, done = 0, total = n;
       let bankMade = false;
+      let stimulusFailed = false;
       try {
-        const conn = await newQuizzes.connect(plan.quiz.id, (label, fn) => { log(label + '…'); return fn(); });
-        const step = (label, fn) => { log(label + '…'); return fn(); };
-        log('Getting the quiz editor’s login…');
+        const step = (label, fn) => { ctx.step(label + '…'); return fn(); };
+        const conn = await newQuizzes.connect(plan.quiz.id, step);
+        ctx.step('Getting the quiz editor’s login…');
         const editor = await newQuizzes.buildLogin(conn, step);
 
         // New Quizzes' own ids for the questions (the public API's can differ).
         const fresh = planQuizMove(await newQuizzes.quizEntries(editor));
-        if (!fresh.moves.length) throw new Error('New Quizzes listed no questions to move in this quiz');
-        if (fresh.moves.length !== n) log(`ℹ️ The quiz now has ${fresh.moves.length} entries to move (the preview showed ${n}).`);
+        if (!fresh.moves.length) throw new Error('Canvas listed no questions to move in this quiz');
+        if (fresh.moves.length !== n) ctx.note(`The quiz now has ${nEntries(fresh.moves.length)} to move (the preview showed ${n}).`);
+        if (ctx.stopped) return 'Stopped before anything was changed.';
 
-        log(`Creating the bank "${title}"…`);
-        const bankId = await createBank(title, bankCourse);
+        ctx.step(`Creating the bank “${title}”…`);
+        const bankId = await createBank(title, bankCourse, ctx);
         bankMade = true;
-        log('✅ Bank created. Moving the questions…');
+        reloadAfterRun = true; // the new bank should appear in Canvas's list
+        log('Bank created. Moving the questions…');
 
-        const total = fresh.moves.length;
+        total = fresh.moves.length;
+        ctx.progress(0, total);
         await paced(fresh.moves, PAUSE_WRITE_MS, async (m, i) => {
+          if (ctx.stopped) return false;
           const label = `${i + 1}/${total} ${m.name}`;
           try {
-            if (!m.sourceId || !m.quizEntryId) throw new Error("New Quizzes didn't give this entry's id");
+            if (!m.sourceId || !m.quizEntryId) throw new Error("Canvas didn't give this entry's id");
             await newQuizzes.moveToBank(editor, bankId, m);
             moved++;
-            log(`✅ ${label}`);
+            log(`Moved: ${label}`);
           } catch (e) {
             failed++;
-            log(`❌ ${label} (${e.message})` +
-                (m.underStimulus ? '. It may already have moved with its stimulus; check the count below.' : ''));
+            if (m.underStimulus) stimulusFailed = true;
+            log(`Failed: ${label} (${e.message})`);
             if (e.status === 401) {
-              log('A login expired. Reload the page and move the rest from the quiz editor, ' +
-                  'or delete the new bank and run this again.');
+              ctx.note('A login expired. Reload the page and move the rest from the quiz editor, ' +
+                'or delete the new bank and run this again.', true);
+              ctx.progress(++done, total);
               return false;
             }
           }
+          ctx.progress(++done, total);
           return true;
         });
 
+        if (stimulusFailed) ctx.note('Some failed questions sit under a stimulus and may have moved with it. Check the bank’s count.', true);
         const inBank = await countBankEntries(bankId).catch(() => null);
-        log(`Done: ${moved} of ${total} moved into "${title}"${failed ? `, ${failed} failed` : ''}.` +
-            (inBank == null ? '' : ` The bank now holds ${inBank} entr${inBank === 1 ? 'y' : 'ies'}.`) +
-            ' Reload the page to see the new bank.');
+        if (inBank != null) ctx.note(`The bank now holds ${nEntries(inBank)}.`);
+        const parts = [`${moved} moved into “${title}”`];
+        if (failed) parts.push(`${failed} failed`);
+        if (done < total) parts.push(`${total - done} not attempted`);
+        return `${ctx.stopped ? 'Stopped' : 'Done'}: ${parts.join(', ')}.`;
       } catch (e) {
-        log('Stopped: ' + e.message + (bankMade ? '' : '. Nothing was changed.'));
-      } finally {
-        job.end();
-        setBusy(false);
+        return `Stopped: ${e.message}.` + (bankMade ? '' : ' Nothing was changed.');
       }
     }
+
 
     return {
       name: 'Item Bank Sharing',
@@ -943,3 +1271,4 @@
 
   register(createItemBankFeature);
 })();
+
