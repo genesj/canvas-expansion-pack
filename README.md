@@ -19,13 +19,15 @@ On the Modules page, a green "Batch Edit ▾" button has been added to the top. 
     - Similarly to Rename Modules, allows you to batch rename any items inside of your modules. Warns when changing the name of a page that the URL will change as well.
 The same tools are available on the Assignments page. Batch Renaming of Assignment Groups is available in lieu of Module renaming.
 ### Item Banks
-On the Item Banks page, a green Bulk Permissions Editor button has been added. It has three features:
+On the Item Banks page, a green "Batch Edit ▾" button has been added. It has four features:
 - Share with a person
     - Allows you to share any or all item banks with a user in the course. The user must either have the Teacher, TA, or Designer roles.
 - Share with this course
     - Allows you to share any or all item banks with the course you are currently inside of.
 - Review or remove current shares
     - Allows you to check who has access to what item banks, and to revoke access to item banks in bulk.
+- Make a bank from a quiz
+    - Adds all questions within a selected quiz into a new item bank.
 ### Fudge Points
 On the Grades page, an Add Fudge Points button has been added to the three-dot menu ⋮ that appears when you hover on the header cell of a New Quiz column. It allows you to add or remove fudge points to any or all students in the course. 
 As this one edits student grade data, it should be considered _extremely experimental_, and backups of your gradebook are heavily encouraged.
