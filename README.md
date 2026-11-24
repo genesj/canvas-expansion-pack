@@ -30,6 +30,8 @@ On the Item Banks page, a green "Batch Edit ▾" button has been added. It has f
 - Review or remove access
     - Allows you to check who has access to what item banks, and to revoke access to item banks in bulk.
 - Make a bank from a quiz
+    - Adds all questions within a selected quiz into a new item bank.
+- Make a bank from a quiz
     - Creates a bank named after a selected quiz, moves the questions into it, and links the quiz to that bank.
 ### Fudge Points
 On the Grades page, an Add Fudge Points button has been added to the three-dot menu ⋮ that appears when you hover on the header cell of a New Quiz column. It allows you to add or remove fudge points to any or all students in the course. 
